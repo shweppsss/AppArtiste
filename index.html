@@ -2597,6 +2597,18 @@
     width: 6px; height: 6px;
     border-radius: 50%;
     background: var(--success);
+    transition: background-color var(--duration-base) var(--ease-standard);
+  }
+  /* Sync state reflected in the chip dot (re-uses the existing element, no new markup).
+     Default = green (synced/idle). Syncing pulses orange. Failed = red, solid. */
+  .user-chip-dot.is-syncing {
+    background: #FF9F0A;
+    animation: syncPulse 1s ease-in-out infinite;
+  }
+  .user-chip-dot.is-failed { background: var(--danger); }
+  @keyframes syncPulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.35; }
   }
 
   /* ============================
@@ -5526,6 +5538,12 @@ let _lastRemoteUpdatedAt = null;   // ISO timestamp of the latest cloud workspac
 let _lastRealtimeEventAt = 0;      // ms epoch — used by the heartbeat fallback to skip polling
 let _resubscribeTimer = null;      // delayed re-subscribe after channel error/timeout/close
 let _heartbeatTimer = null;        // periodic poll fallback if realtime channel goes silent
+// Per-tab echo suppression: when we upsert, we record the new updated_at here.
+// Realtime callback skips events whose updated_at is in this set (= our own write
+// from THIS tab). Other tabs of the same user have their own _ownPushedTimestamps
+// and therefore RECEIVE our updates correctly — fixes the multi-tab sync bug
+// where filtering on updated_by === user.id suppressed all sibling tabs.
+const _ownPushedTimestamps = new Set();
 
 function loadSupabaseConfig() {
   // Priorité 1 : config locale (poste de l'admin qui a fait le setup wizard)
@@ -5658,6 +5676,12 @@ async function pushWorkspaceToCloud() {
 
     _suppressRemoteUntil = Date.now() + 1500;
     const _newUpdatedAt = new Date().toISOString();
+    // Track THIS push so the Realtime callback can filter our own echo without
+    // also suppressing sibling tabs (different timestamps per tab even at same instant).
+    _ownPushedTimestamps.add(_newUpdatedAt);
+    // GC after 30s — the round-trip echo arrives in <1s in practice, this is just
+    // a safety net so the set doesn't grow unbounded if a broadcast is lost.
+    setTimeout(() => _ownPushedTimestamps.delete(_newUpdatedAt), 30000);
     const { error } = await sb.from('workspace').upsert({
       id: WORKSPACE_ID,
       state,
@@ -5680,9 +5704,11 @@ async function pushWorkspaceToCloud() {
     _cloudConsecutiveFailures = 0;
     _cloudSyncPending = false;
     if (_cloudRetryTimer) { clearTimeout(_cloudRetryTimer); _cloudRetryTimer = null; }
+    updateSyncIndicator();
   } catch (e) {
     _cloudConsecutiveFailures++;
     _cloudSyncPending = true;
+    updateSyncIndicator();
     console.warn('[Cloud] Sync failed (attempt ' + _cloudConsecutiveFailures + '):', e);
     // Discreet retry — only alert user after multiple failures
     if (_cloudConsecutiveFailures === 6) {
@@ -5705,8 +5731,34 @@ function scheduleRetrySync() {
 function scheduleCloudSave() {
   if (!sb || !_currentUser) return;
   _cloudSyncPending = true;
+  updateSyncIndicator();
   if (_cloudSaveTimer) clearTimeout(_cloudSaveTimer);
-  _cloudSaveTimer = setTimeout(pushWorkspaceToCloud, 800);
+  // 300ms feels live without thrashing the cloud. 800ms was conservative back when
+  // state was 40+ MB; with the IDB migrations done it's ~13 KB now.
+  _cloudSaveTimer = setTimeout(pushWorkspaceToCloud, 300);
+}
+
+// Reflect the current cloud-sync state on the existing user-chip dot.
+//   • idle/synced  → green (default)
+//   • syncing      → orange pulse (_cloudSyncPending=true, no recent failure)
+//   • failed       → red solid (_cloudConsecutiveFailures >= 1 and still pending)
+// Called at every relevant transition (schedule, success, failure).
+function updateSyncIndicator() {
+  const dot = document.querySelector('#userChip .user-chip-dot');
+  if (!dot) return;
+  dot.classList.remove('is-syncing', 'is-failed');
+  let title = 'Synchronisé';
+  if (_cloudSyncPending) {
+    if (_cloudConsecutiveFailures >= 1) {
+      dot.classList.add('is-failed');
+      title = 'Synchro en échec — on réessaie en arrière-plan';
+    } else {
+      dot.classList.add('is-syncing');
+      title = 'Synchronisation en cours…';
+    }
+  }
+  const chip = document.getElementById('userChip');
+  if (chip) chip.title = title;
 }
 
 // Reprise automatique de la synchro quand le réseau revient
@@ -5752,9 +5804,15 @@ function subscribeToWorkspaceRealtime() {
       filter: `id=eq.${WORKSPACE_ID}`,
     }, (payload) => {
       if (!payload.new) return;
-      // Ignore our own writes (debounce window)
-      if (Date.now() < _suppressRemoteUntil && payload.new.updated_by === _currentUser.id) return;
-      if (payload.new.updated_by === _currentUser.id) return;
+      // Skip our own echo, per-tab. Same-user sibling tabs pushed with a different
+      // timestamp so their write is NOT in our set → we DO apply it. Fixes the
+      // previous bug where filtering on updated_by === user.id meant cross-tab
+      // edits by the same person never propagated until next visibilitychange.
+      const inboundStamp = payload.new.updated_at;
+      if (inboundStamp && _ownPushedTimestamps.has(inboundStamp)) {
+        _ownPushedTimestamps.delete(inboundStamp);
+        return;
+      }
       _lastRealtimeEventAt = Date.now();
       if (payload.new.updated_at) _lastRemoteUpdatedAt = payload.new.updated_at;
       // Anti-flicker — skip render if the incoming state is byte-identical to current
@@ -6323,7 +6381,10 @@ function deepMerge(target, source) {
 function mergeWorkspaceStates(local, cloud) {
   if (!cloud || typeof cloud !== 'object') return local;
   if (!local || typeof local !== 'object') return cloud;
-  const ID_ARRAYS = ['events', 'todos', 'inspirations', 'team', 'tracks'];
+  // Every top-level array in state whose items carry a stable `.id` must be listed
+  // here, otherwise concurrent edits across users will overwrite each other instead
+  // of merging. clips + capsules were added in PR #6 and slipped through.
+  const ID_ARRAYS = ['events', 'todos', 'inspirations', 'team', 'tracks', 'clips', 'capsules'];
   const merged = JSON.parse(JSON.stringify(local));
   for (const key of ID_ARRAYS) {
     const localArr = Array.isArray(local[key]) ? local[key] : [];
