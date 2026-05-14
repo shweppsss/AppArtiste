@@ -1,0 +1,48 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Éditeurs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# Sauvegardes / drafts
+*.bak
+*.tmp
+*~
+draft-*
+scratch/
+
+# Secrets — JAMAIS commit
+.env
+.env.local
+.env.*.local
+.env.production
+vapid-keys.txt
+*.pem
+*.key
+
+# Supabase CLI (généré localement)
+.supabase/
+
+# Build (au cas où on ajouterait un bundler plus tard)
+dist/
+build/
+node_modules/
+
+# Tests / coverage
+coverage/
+.nyc_output/
+
+# Fichiers volumineux temporaires
+*.zip
+*.tar.gz

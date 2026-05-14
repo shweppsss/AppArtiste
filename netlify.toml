@@ -1,0 +1,51 @@
+# =============================================================================
+# Configuration Netlify — Noname × Degzzy
+# =============================================================================
+# Ce fichier permet l'auto-deploy depuis GitHub : chaque push sur `main`
+# déclenche un nouveau deploy. Les pull requests génèrent des deploy previews.
+# =============================================================================
+
+[build]
+  # Pas de build step — on déploie les fichiers tels quels
+  publish = "."
+  command = ""
+
+# Headers HTTP — critiques pour le PWA et la sécurité
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Service-Worker-Allowed = "/"
+
+[[headers]]
+  for = "/manifest.json"
+  [headers.values]
+    Content-Type = "application/manifest+json"
+    Cache-Control = "public, max-age=3600"
+
+[[headers]]
+  for = "/icon-*.png"
+  [headers.values]
+    Cache-Control = "public, max-age=2592000, immutable"
+
+[[headers]]
+  for = "/og-image.png"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"
+
+# Sécurité minimale sur toutes les pages
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "SAMEORIGIN"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+
+# Redirection : tous les chemins inconnus retournent index.html
+# (utile pour les futures routes SPA, et pour les deep-links de push)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+  force = false
