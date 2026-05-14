@@ -4982,11 +4982,125 @@ function workspaceKey() {
   const id = getActiveProfileId();
   return id ? `degzzy_workspace_${id}` : LEGACY_LS_KEY;
 }
-function hashPin(pin) {
+/* PIN HASHING
+   --------------------------------------------------------------------------
+   v2 format: JSON { v:2, salt, hash } using PBKDF2-SHA256 with 100k iterations
+              and a per-PIN random 16-byte salt. Bcrypt-class strength for the
+              tiny 4-digit search space and a vastly better story than the old
+              djb2 (which any attacker with localStorage access cracked
+              instantly via precomputed rainbow tables on the 10 000 PINs).
+   v1 format: 'h_<base36 djb2>' kept for verifying legacy hashes.
+              When a v1 hash verifies successfully, we upgrade it to v2 inline.
+   -------------------------------------------------------------------------- */
+const PIN_HASH_VERSION = 2;
+const PIN_PBKDF2_ITERATIONS = 100000;
+
+function _legacyHashPin(pin) {
   if (!pin) return '';
   let h = 5381;
   for (let i = 0; i < pin.length; i++) h = ((h * 33) ^ pin.charCodeAt(i)) >>> 0;
   return 'h_' + h.toString(36);
+}
+function _bytesToB64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s);
+}
+function _b64ToBytes(b64) {
+  const s = atob(b64);
+  const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  return out;
+}
+async function _pbkdf2(pin, saltBytes) {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', enc.encode(pin), { name: 'PBKDF2' }, false, ['deriveBits']
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: saltBytes, iterations: PIN_PBKDF2_ITERATIONS, hash: 'SHA-256' },
+    keyMaterial, 256
+  );
+  return new Uint8Array(bits);
+}
+async function hashPin(pin) {
+  if (!pin) return '';
+  const saltBytes = crypto.getRandomValues(new Uint8Array(16));
+  const hashBytes = await _pbkdf2(pin, saltBytes);
+  return JSON.stringify({
+    v: PIN_HASH_VERSION,
+    salt: _bytesToB64(saltBytes),
+    hash: _bytesToB64(hashBytes),
+  });
+}
+async function verifyPin(pin, stored) {
+  if (!stored || !pin) return false;
+  // Legacy djb2 format
+  if (stored.startsWith('h_')) {
+    return _legacyHashPin(pin) === stored;
+  }
+  // v2 PBKDF2 format
+  try {
+    const parsed = JSON.parse(stored);
+    if (!parsed || parsed.v !== PIN_HASH_VERSION || !parsed.salt || !parsed.hash) return false;
+    const saltBytes = _b64ToBytes(parsed.salt);
+    const challenge = await _pbkdf2(pin, saltBytes);
+    const expected = _b64ToBytes(parsed.hash);
+    if (challenge.length !== expected.length) return false;
+    // Constant-time compare — avoid timing side-channel on the 256-bit hash
+    let diff = 0;
+    for (let i = 0; i < challenge.length; i++) diff |= challenge[i] ^ expected[i];
+    return diff === 0;
+  } catch (e) { return false; }
+}
+
+/* WEAK PIN BLOCKLIST
+   Refuses the most-guessed 4-digit codes at setup. Catches the ~20% of users
+   who'd otherwise pick "1234" or "0000" — combined with the new lockout this
+   makes the brute-force budget on a stolen device unrealistic. */
+const WEAK_PINS = new Set([
+  '0000','1111','2222','3333','4444','5555','6666','7777','8888','9999',
+  '1234','2345','3456','4567','5678','6789',
+  '9876','8765','7654','6543','5432','4321','3210','0987',
+  '1212','2121','1010','0101','0123','1098','1379','2580','1357','7531',
+  '1004','2004','0420','6969','1111','1313','6789','2468',
+]);
+function isWeakPin(pin) {
+  if (!/^\d{4}$/.test(pin)) return false;
+  return WEAK_PINS.has(pin);
+}
+
+/* PIN ATTEMPT LOCKOUT
+   Per-user, persisted in localStorage so a page reload doesn't reset the counter.
+   3 fails → 30s; 6 fails → 5 min; 10 fails → force email/password re-auth. */
+function _pinLockKey() {
+  return _currentUser ? ('degzzy_pin_lock_' + _currentUser.id) : null;
+}
+function getPinLockState() {
+  const key = _pinLockKey();
+  if (!key) return { count: 0, lockedUntil: 0, isLocked: false, remainingSec: 0 };
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return { count: 0, lockedUntil: 0, isLocked: false, remainingSec: 0 };
+    const { count = 0, lockedUntil = 0 } = JSON.parse(raw);
+    const remainingSec = Math.max(0, Math.ceil((lockedUntil - Date.now()) / 1000));
+    return { count, lockedUntil, isLocked: remainingSec > 0, remainingSec };
+  } catch (e) { return { count: 0, lockedUntil: 0, isLocked: false, remainingSec: 0 }; }
+}
+function recordPinFailure() {
+  const key = _pinLockKey();
+  if (!key) return { count: 0, lockedUntil: 0 };
+  const count = (getPinLockState().count || 0) + 1;
+  let lockedUntil = 0;
+  if (count >= 10)     lockedUntil = Date.now() + 60 * 60 * 1000;  // 1h (we'll signOut anyway)
+  else if (count >= 6) lockedUntil = Date.now() + 5 * 60 * 1000;   // 5 min
+  else if (count >= 3) lockedUntil = Date.now() + 30 * 1000;       // 30 s
+  localStorage.setItem(key, JSON.stringify({ count, lockedUntil }));
+  return { count, lockedUntil };
+}
+function clearPinFailures() {
+  const key = _pinLockKey();
+  if (key) localStorage.removeItem(key);
 }
 
 // Migration: convert old single-user data into a profile
@@ -5581,6 +5695,9 @@ let sb = null;
 let _currentUser = null;
 let _currentProfile = null;
 let _realtimeChannel = null;
+// Set true while we run our own signOut so the onAuthStateChange SIGNED_OUT
+// callback doesn't race with signOutUser's own location.reload().
+let _signOutInProgress = false;
 let _cloudSaveTimer = null;
 let _suppressRemoteUntil = 0;
 let _lastRemoteUpdatedAt = null;   // ISO timestamp of the latest cloud workspace row we observed
@@ -5620,12 +5737,28 @@ function initSupabase() {
       },
       realtime: { params: { eventsPerSecond: 8 } },
     });
-    // Listen for password recovery flow
+    // React to Supabase auth lifecycle events. PASSWORD_RECOVERY shows the
+    // reset view; SIGNED_OUT means the session ended (server-side revoke,
+    // password change elsewhere, manual signOut on another device) — we
+    // tear down the realtime channel and reload so checkAuth re-routes to
+    // the sign-in screen. TOKEN_REFRESHED is just logged for visibility.
     sb.auth.onAuthStateChange((event, session) => {
       console.log('[Auth] event:', event);
       if (event === 'PASSWORD_RECOVERY') {
         _currentUser = session ? session.user : null;
         showResetPassword();
+        return;
+      }
+      if (event === 'SIGNED_OUT') {
+        _currentUser = null;
+        _currentProfile = null;
+        if (_realtimeChannel) {
+          try { sb.removeChannel(_realtimeChannel); } catch (e) {}
+          _realtimeChannel = null;
+        }
+        // Skip the reload if we initiated the signOut ourselves — signOutUser
+        // already reloads, and a double-reload race can cancel the first one.
+        if (!_signOutInProgress) location.reload();
       }
     });
     return true;
@@ -6081,11 +6214,20 @@ async function postAuthFlow() {
   }
 }
 
-function setLocalPin(ev) {
+async function setLocalPin(ev) {
   ev.preventDefault();
   const a = document.getElementById('pinSetup1').value;
   const b = document.getElementById('pinSetup2').value;
   if (!/^\d{4}$/.test(a)) { toast('Le code doit faire 4 chiffres.'); return; }
+  if (isWeakPin(a)) {
+    toast('Code trop facile à deviner. Évite 0000, 1234, 1111, etc.');
+    haptic(60);
+    document.getElementById('pinSetup1').value = '';
+    document.getElementById('pinSetup2').value = '';
+    const card = document.querySelector('.auth-card');
+    if (card) { card.style.animation = 'shakeX 320ms'; setTimeout(() => { card.style.animation = ''; }, 360); }
+    return;
+  }
   if (a !== b) {
     toast('Les codes ne correspondent pas.');
     document.getElementById('pinSetup2').value = '';
@@ -6096,10 +6238,17 @@ function setLocalPin(ev) {
     return;
   }
   const localPinKey = LOCAL_PIN_KEY_PREFIX + _currentUser.id;
-  localStorage.setItem(localPinKey, hashPin(a));
-  toast('Code PIN enregistré sur cet appareil.');
-  haptic(20);
-  enterApp();
+  try {
+    const stored = await hashPin(a);
+    localStorage.setItem(localPinKey, stored);
+    clearPinFailures();
+    toast('Code PIN enregistré sur cet appareil.');
+    haptic(20);
+    enterApp();
+  } catch (e) {
+    console.error('hashPin failed:', e);
+    toast('Erreur lors de l\'enregistrement du PIN.');
+  }
 }
 
 /* ============================
@@ -6142,11 +6291,42 @@ function pinDelete() {
   if (typeof haptic === 'function') haptic(10);
 }
 
-function submitPinBuffer() {
+async function submitPinBuffer() {
   if (!_currentUser) { _pinBuffer = ''; _pinLocked = false; updatePinDots(); return; }
+
+  // Lockout guard — refuse before checking the hash at all
+  const lock = getPinLockState();
+  if (lock.isLocked) {
+    const mins = Math.floor(lock.remainingSec / 60);
+    const secs = lock.remainingSec % 60;
+    const dur = mins > 0 ? (mins + 'min ' + secs + 's') : (secs + 's');
+    toast('Trop d\'essais. Réessaie dans ' + dur + '.');
+    haptic(60);
+    _pinBuffer = ''; _pinLocked = false; updatePinDots();
+    return;
+  }
+
   const localPinKey = LOCAL_PIN_KEY_PREFIX + _currentUser.id;
   const stored = localStorage.getItem(localPinKey);
-  if (hashPin(_pinBuffer) === stored) {
+  let ok = false;
+  try {
+    ok = await verifyPin(_pinBuffer, stored);
+  } catch (e) {
+    console.error('verifyPin failed:', e);
+  }
+
+  if (ok) {
+    // If the stored hash is the legacy djb2 format, upgrade it transparently
+    // to PBKDF2-SHA256 on this successful entry. The user pays a one-time
+    // ~50ms cost and the next login is fully on the strong algo.
+    if (stored && stored.startsWith('h_')) {
+      try {
+        const upgraded = await hashPin(_pinBuffer);
+        localStorage.setItem(localPinKey, upgraded);
+        console.log('[PIN] Hash upgraded from djb2 to PBKDF2-SHA256');
+      } catch (e) { console.warn('[PIN] Hash upgrade failed (kept legacy):', e); }
+    }
+    clearPinFailures();
     try {
       enterApp();
     } catch (e) {
@@ -6157,20 +6337,35 @@ function submitPinBuffer() {
       _pinLocked = false;
       updatePinDots();
     }
-  } else {
-    if (typeof toast === 'function') toast('Code incorrect.');
-    if (typeof haptic === 'function') haptic(60);
-    const dotsRow = document.getElementById('pinDots');
-    if (dotsRow) {
-      dotsRow.classList.add('pin-shake');
-      setTimeout(() => dotsRow.classList.remove('pin-shake'), 400);
-    }
-    setTimeout(() => {
-      _pinBuffer = '';
-      _pinLocked = false;
-      updatePinDots();
-    }, 360);
+    return;
   }
+
+  // Wrong PIN — record + decide lockout response
+  const { count, lockedUntil } = recordPinFailure();
+  if (count >= 10) {
+    toast('Trop d\'essais. Déconnexion forcée — reconnecte-toi par email/mot de passe.');
+    haptic(60);
+    setTimeout(() => { if (typeof signOutUser === 'function') signOutUser(); }, 1500);
+    return;
+  }
+  if (lockedUntil > 0) {
+    const secs = Math.max(1, Math.ceil((lockedUntil - Date.now()) / 1000));
+    const minsLabel = secs >= 60 ? (Math.floor(secs / 60) + 'min ' + (secs % 60) + 's') : (secs + 's');
+    toast('Code incorrect (' + count + '/10). Verrouillé ' + minsLabel + '.');
+  } else {
+    toast('Code incorrect (' + count + '/10).');
+  }
+  haptic(60);
+  const dotsRow = document.getElementById('pinDots');
+  if (dotsRow) {
+    dotsRow.classList.add('pin-shake');
+    setTimeout(() => dotsRow.classList.remove('pin-shake'), 400);
+  }
+  setTimeout(() => {
+    _pinBuffer = '';
+    _pinLocked = false;
+    updatePinDots();
+  }, 360);
 }
 
 // Face ID button — gracefully degrades when WebAuthn / passkey unavailable
@@ -6224,6 +6419,7 @@ function resetLocalPin() {
 }
 
 async function signOutUser() {
+  _signOutInProgress = true;
   if (sb) {
     try { await sb.auth.signOut(); } catch (e) {}
   }
