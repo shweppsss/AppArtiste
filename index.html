@@ -2599,6 +2599,45 @@
     background: var(--success);
   }
 
+  /* Account popover anchored near the userChip in the sidebar */
+  .account-menu {
+    position: absolute;
+    left: var(--space-5);
+    right: var(--space-5);
+    margin-top: 6px;
+    z-index: 100;
+    background: var(--surface-solid);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 16px 48px -16px rgba(0,0,0,0.7);
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .account-menu[hidden] { display: none; }
+  .account-menu-item {
+    display: flex; flex-direction: column; align-items: flex-start;
+    gap: 2px;
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    background: transparent;
+    border: none;
+    color: var(--text);
+    text-align: left;
+    font: var(--font-body);
+    cursor: pointer;
+    transition: var(--transition);
+  }
+  .account-menu-item:hover { background: var(--surface-2); }
+  .account-menu-item .account-menu-sub {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.3;
+  }
+  .account-menu-danger { color: var(--danger); }
+  .account-menu-danger:hover { background: rgba(255, 69, 58, 0.08); }
+
   /* ============================
      BUDGET
      ============================ */
@@ -4197,9 +4236,19 @@
       <div class="brand-logo">NONAME AGENCY</div>
       <div class="brand-sub">× Degzzy</div>
       <div class="brand-meta">Projet R.I.C.H — Sept. 2026</div>
-      <div id="userChip" class="user-chip" onclick="logoutStudio()" style="display:none;">
+      <div id="userChip" class="user-chip" onclick="toggleAccountMenu(event)" style="display:none;">
         <span class="user-chip-dot"></span>
         <span id="userChipName">—</span>
+      </div>
+      <div id="accountMenu" class="account-menu" hidden>
+        <button type="button" class="account-menu-item" onclick="disablePinOnThisDevice()">
+          Désactiver le PIN sur cet appareil
+          <span class="account-menu-sub">Tu restes connecté, le code 4 chiffres est retiré</span>
+        </button>
+        <button type="button" class="account-menu-item account-menu-danger" onclick="logoutStudio()">
+          Se déconnecter
+          <span class="account-menu-sub">Email + mot de passe à retaper au prochain accès</span>
+        </button>
       </div>
     </div>
 
@@ -5783,6 +5832,37 @@ function subscribeToWorkspaceRealtime() {
     });
 }
 
+// Translate common Supabase auth errors to French. Falls back to the original
+// message if we don't have a translation — better than swallowing the detail.
+function mapAuthError(e) {
+  const raw = (e && (e.message || e.error_description || e.error || String(e))) || 'Erreur inconnue';
+  const lower = raw.toLowerCase();
+  const map = [
+    ['invalid login credentials',     'Email ou mot de passe incorrect.'],
+    ['invalid email or password',     'Email ou mot de passe incorrect.'],
+    ['email not confirmed',           'Confirme ton email avant de te connecter (vérifie les SPAMS).'],
+    ['user already registered',       'Cette adresse a déjà un compte. Essaie de te connecter.'],
+    ['user already exists',           'Cette adresse a déjà un compte. Essaie de te connecter.'],
+    ['email address is invalid',      'Email invalide.'],
+    ['unable to validate email',      'Email invalide.'],
+    ['password should be at least',   'Mot de passe trop court : minimum 6 caractères.'],
+    ['weak password',                 'Mot de passe trop faible : ajoute des chiffres et des lettres.'],
+    ['rate limit exceeded',           'Trop de tentatives. Réessaie dans quelques minutes.'],
+    ['too many requests',             'Trop de tentatives. Réessaie dans quelques minutes.'],
+    ['user not found',                'Aucun compte avec cet email.'],
+    ['signup is disabled',            'Les inscriptions sont fermées. Contacte l\'admin.'],
+    ['email rate limit exceeded',     'Trop d\'emails envoyés. Réessaie dans 1h.'],
+    ['session not found',             'Session expirée. Reconnecte-toi.'],
+    ['session expired',               'Session expirée. Reconnecte-toi.'],
+    ['network',                       'Pas de connexion internet. Vérifie ton réseau.'],
+    ['fetch',                         'Connexion au serveur impossible. Réessaie dans un instant.'],
+  ];
+  for (const [needle, fr] of map) {
+    if (lower.includes(needle)) return fr;
+  }
+  return raw;
+}
+
 async function signInUser(ev) {
   ev.preventDefault();
   const email = document.getElementById('signInEmail').value.trim();
@@ -5797,7 +5877,7 @@ async function signInUser(ev) {
     await loadProfileFromCloud();
     await postAuthFlow();
   } catch (e) {
-    toast('Connexion impossible : ' + (e.message || 'erreur inconnue'));
+    toast('Connexion impossible : ' + mapAuthError(e));
     haptic(60);
     const card = document.querySelector('.auth-card');
     card.style.animation = 'shakeX 320ms';
@@ -5852,7 +5932,7 @@ async function signUpUser(ev) {
     await postAuthFlow();
   } catch (e) {
     console.error('signUpUser error:', e);
-    toast('Création impossible : ' + (e.message || 'erreur inconnue'));
+    toast('Création impossible : ' + mapAuthError(e));
     haptic(60);
   } finally {
     btn.classList.remove('auth-loading');
@@ -5884,7 +5964,7 @@ async function sendResetEmail(ev) {
     setTimeout(() => showSignIn(), 1500);
   } catch (e) {
     console.error('resetPasswordForEmail:', e);
-    toast('Envoi impossible : ' + (e.message || 'erreur'));
+    toast('Envoi impossible : ' + mapAuthError(e));
   } finally {
     btn.classList.remove('auth-loading');
     btn.disabled = false;
@@ -5925,7 +6005,7 @@ async function submitNewPassword(ev) {
     await postAuthFlow();
   } catch (e) {
     console.error('updateUser password:', e);
-    toast('Impossible : ' + (e.message || 'erreur'));
+    toast('Impossible : ' + mapAuthError(e));
   } finally {
     btn.classList.remove('auth-loading');
     btn.disabled = false;
@@ -5959,6 +6039,8 @@ function setLocalPin(ev) {
   }
   const localPinKey = LOCAL_PIN_KEY_PREFIX + _currentUser.id;
   localStorage.setItem(localPinKey, hashPin(a));
+  toast('Code PIN enregistré sur cet appareil.');
+  haptic(20);
   enterApp();
 }
 
@@ -6055,13 +6137,13 @@ async function pinTryFaceId() {
 }
 
 async function _refreshPinFaceIdButton() {
+  // Face ID is intentionally hidden until WebAuthn passkey registration + verify
+  // is fully wired. The previous behavior showed the button whenever a platform
+  // authenticator existed, but tapping it only toasted "bientôt disponible" —
+  // confusing for users. Re-enable by detecting passkey credential presence,
+  // not just authenticator availability.
   const btn = document.getElementById('pinFaceIdBtn');
-  if (!btn) return;
-  if (!window.PublicKeyCredential) { btn.hidden = true; return; }
-  try {
-    const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-    btn.hidden = !available;
-  } catch (e) { btn.hidden = true; }
+  if (btn) btn.hidden = true;
 }
 
 // Physical keyboard support — only while the PIN view is visible
@@ -8580,7 +8662,6 @@ function generateTasksForRole(role) {
 /* ============================
    AUTH / SESSION
    ============================ */
-let _pendingProfileId = null;
 
 async function checkAuth() {
   const auth = document.getElementById('authScreen');
@@ -8646,173 +8727,8 @@ async function checkAuth() {
   showSignIn();
 }
 
-function renderAuth() {
-  const profiles = getProfiles();
-  const tag = document.getElementById('authTag');
-  if (profiles.length === 0) {
-    // No accounts yet — go straight to creation
-    if (tag) tag.textContent = 'Bienvenue. Crée ton compte pour commencer.';
-    showProfileCreate(true);
-  } else {
-    if (tag) tag.textContent = 'Connecte-toi pour reprendre où tu en étais.';
-    showProfileList();
-  }
-}
-
-function showProfileList() {
-  document.getElementById('authProfilesView').style.display = 'block';
-  document.getElementById('authCreateView').style.display = 'none';
-  document.getElementById('authPinView').style.display = 'none';
-  renderProfileList();
-}
-
-function renderProfileList() {
-  const profiles = getProfiles().slice().sort((a, b) => (b.lastLogin || '').localeCompare(a.lastLogin || ''));
-  document.getElementById('authProfileList').innerHTML = profiles.map(p => `
-    <div class="auth-profile-card" onclick="selectProfile('${p.id}')">
-      <div class="auth-profile-avatar">${escapeHtml((p.name[0] || '?').toUpperCase())}</div>
-      <div class="auth-profile-info">
-        <div class="auth-profile-name">${escapeHtml(p.name)}</div>
-        <div class="auth-profile-role">${escapeHtml(p.role || 'Autre')}${p.pinHash ? ' · 🔒' : ''}</div>
-      </div>
-      <button class="auth-profile-del" onclick="event.stopPropagation(); deleteProfile('${p.id}')" title="Supprimer ce compte">×</button>
-    </div>
-  `).join('');
-}
-
-function showProfileCreate(firstTime = false) {
-  document.getElementById('authProfilesView').style.display = 'none';
-  document.getElementById('authCreateView').style.display = 'flex';
-  document.getElementById('authPinView').style.display = 'none';
-  document.getElementById('authBackToList').style.display = firstTime ? 'none' : 'inline-flex';
-  document.getElementById('authName').value = '';
-  document.getElementById('authPin').value = '';
-  document.querySelectorAll('.auth-role').forEach(x => x.classList.remove('active'));
-  // Attach role click handlers (idempotent)
-  document.querySelectorAll('.auth-role').forEach(r => {
-    r.onclick = () => {
-      document.querySelectorAll('.auth-role').forEach(x => x.classList.remove('active'));
-      r.classList.add('active');
-    };
-  });
-  setTimeout(() => document.getElementById('authName').focus(), 100);
-}
-
-function selectProfile(id) {
-  const profile = getProfiles().find(p => p.id === id);
-  if (!profile) return;
-  if (profile.pinHash) {
-    _pendingProfileId = id;
-    document.getElementById('authProfilesView').style.display = 'none';
-    document.getElementById('authPinView').style.display = 'flex';
-    document.getElementById('authPinAvatar').textContent = (profile.name[0] || '?').toUpperCase();
-    document.getElementById('authPinName').textContent = profile.name;
-    const input = document.getElementById('authPinInput');
-    input.value = '';
-    setTimeout(() => input.focus(), 100);
-  } else {
-    completeLogin(profile);
-  }
-}
-
-function verifyPin(ev) {
-  ev.preventDefault();
-  const pin = document.getElementById('authPinInput').value.trim();
-  const profile = getProfiles().find(p => p.id === _pendingProfileId);
-  if (!profile) { showProfileList(); return; }
-  if (hashPin(pin) === profile.pinHash) {
-    completeLogin(profile);
-  } else {
-    toast('Code incorrect.');
-    haptic(60);
-    const input = document.getElementById('authPinInput');
-    input.value = '';
-    input.focus();
-    // Visual shake
-    const card = document.querySelector('.auth-card');
-    card.style.animation = 'shakeX 320ms';
-    setTimeout(() => { card.style.animation = ''; }, 360);
-  }
-}
-
-function completeLogin(profile) {
-  // Switch active profile
-  setActiveProfileId(profile.id);
-  // Update lastLogin
-  const profiles = getProfiles();
-  const p = profiles.find(x => x.id === profile.id);
-  if (p) { p.lastLogin = new Date().toISOString(); saveProfiles(profiles); }
-  // Reload state for this profile
-  state = loadState();
-  if (!state.user || state.user.name !== profile.name) {
-    state.user = { name: profile.name, role: profile.role, since: new Date().toISOString() };
-  }
-  save();
-  // Hide auth, show app
-  hideAuthScreen(() => {
-    refreshUserChip();
-    renderAll();
-    toast(`Bienvenue, ${profile.name}.`);
-    haptic(20);
-    setTimeout(() => confetti(60), 200);
-  });
-}
-
-function createProfile(ev) {
-  ev.preventDefault();
-  const name = document.getElementById('authName').value.trim();
-  const roleEl = document.querySelector('.auth-role.active');
-  const role = roleEl ? roleEl.dataset.role : 'Autre';
-  const pin = document.getElementById('authPin').value.trim();
-  if (!name) return;
-  if (pin && !/^\d{4}$/.test(pin)) {
-    toast('Le PIN doit faire 4 chiffres (ou être vide).');
-    return;
-  }
-  // Check duplicate names — allow but warn
-  const profiles = getProfiles();
-  const id = 'p' + Date.now() + Math.floor(Math.random() * 1000);
-  const newProfile = {
-    id, name, role,
-    pinHash: pin ? hashPin(pin) : '',
-    createdAt: new Date().toISOString(),
-    lastLogin: new Date().toISOString(),
-  };
-  profiles.push(newProfile);
-  saveProfiles(profiles);
-  setActiveProfileId(id);
-  // Fresh workspace for this profile + ROLE-SPECIFIC TASKS
-  state = JSON.parse(JSON.stringify(DEFAULTS));
-  state.user = { name, role, since: new Date().toISOString() };
-  state.todos = generateTasksForRole(role);
-  save();
-  hideAuthScreen(() => {
-    refreshUserChip();
-    renderAll();
-    const nbTasks = state.todos.length;
-    toast(`Bienvenue, ${name}. ${nbTasks} tâches pour le rôle « ${role} » sont prêtes.`);
-    haptic(30);
-    setTimeout(() => confetti(80), 200);
-  });
-}
-
-function deleteProfile(id) {
-  const profile = getProfiles().find(p => p.id === id);
-  if (!profile) return;
-  if (!confirm(`Supprimer le compte "${profile.name}" ? Toutes ses données seront perdues définitivement.`)) return;
-  const profiles = getProfiles().filter(p => p.id !== id);
-  saveProfiles(profiles);
-  localStorage.removeItem(`degzzy_workspace_${id}`);
-  if (getActiveProfileId() === id) setActiveProfileId(null);
-  if (profiles.length === 0) {
-    showProfileCreate(true);
-  } else {
-    renderProfileList();
-  }
-  toast('Compte supprimé.');
-}
-
 function logoutStudio() {
+  hideAccountMenu();
   if (!confirm('Se déconnecter ? Le PIN sera réinitialisé sur cet appareil.')) return;
   // Flush save before logout
   if (_saveTimer) {
@@ -8823,6 +8739,50 @@ function logoutStudio() {
     localStorage.removeItem(LOCAL_PIN_KEY_PREFIX + _currentUser.id);
   }
   signOutUser();
+}
+
+// Account menu — small popover anchored to the userChip in the sidebar
+function toggleAccountMenu(ev) {
+  if (ev) ev.stopPropagation();
+  const menu = document.getElementById('accountMenu');
+  if (!menu) return;
+  const wasOpen = !menu.hidden;
+  if (wasOpen) { hideAccountMenu(); return; }
+  menu.hidden = false;
+  // Close on outside click — armed once per open
+  setTimeout(() => {
+    document.addEventListener('click', _accountMenuOutsideClick, { once: true });
+  }, 0);
+}
+function _accountMenuOutsideClick(e) {
+  const menu = document.getElementById('accountMenu');
+  if (!menu || menu.hidden) return;
+  if (menu.contains(e.target) || e.target.closest('#userChip')) {
+    // Click inside menu or on the chip — re-arm for next outside click
+    document.addEventListener('click', _accountMenuOutsideClick, { once: true });
+    return;
+  }
+  hideAccountMenu();
+}
+function hideAccountMenu() {
+  const menu = document.getElementById('accountMenu');
+  if (menu) menu.hidden = true;
+}
+
+// Disable the per-device PIN without ending the Supabase session. The user
+// stays signed in, just won't be asked the 4-digit code on next reload.
+function disablePinOnThisDevice() {
+  hideAccountMenu();
+  if (!_currentUser) { toast('Pas de session active.'); return; }
+  const localPinKey = LOCAL_PIN_KEY_PREFIX + _currentUser.id;
+  if (!localStorage.getItem(localPinKey)) {
+    toast('Aucun PIN configuré sur cet appareil.');
+    return;
+  }
+  if (!confirm('Désactiver le code PIN sur cet appareil ? Tu pourras en re-créer un à ta prochaine connexion.')) return;
+  localStorage.removeItem(localPinKey);
+  toast('PIN désactivé.');
+  haptic(20);
 }
 
 function hideAuthScreen(cb) {
