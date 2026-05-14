@@ -2,9 +2,9 @@
   "name": "Noname × Degzzy",
   "short_name": "Noname",
   "description": "Studio premium — gestion d'album R.I.C.H. Calendrier, tâches, inspirations, équipe.",
-  "id": "/?source=pwa",
-  "start_url": "/?source=pwa",
-  "scope": "/",
+  "id": "./?source=pwa",
+  "start_url": "./?source=pwa",
+  "scope": "./",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui"],
   "orientation": "portrait",
@@ -15,25 +15,25 @@
   "categories": ["music", "productivity", "business"],
   "prefer_related_applications": false,
   "icons": [
-    { "src": "/icon-192.png",          "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-512.png",          "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
-    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "icon-192.png",          "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png",          "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
     {
       "name": "Calendrier",
       "short_name": "Agenda",
       "description": "Voir les événements à venir",
-      "url": "/?view=calendrier",
-      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+      "url": "./?view=calendrier",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
     },
     {
       "name": "Tâches",
       "short_name": "To-do",
       "description": "Mes tâches actives",
-      "url": "/?view=todos",
-      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+      "url": "./?view=todos",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
     }
   ]
 }
