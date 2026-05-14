@@ -5262,6 +5262,40 @@ async function migrateCoversToIDB() {
   }
 }
 
+// One-time migration: legacy base64 audios (t.audio data: URL) → IndexedDB.
+// Largest quota offender by far when a single base64 audio can be 6-50 MB.
+// Best-effort SB upload to the 'audio' bucket runs in background.
+async function migrateAudiosToIDB() {
+  if (!state.tracks || !state.tracks.length) return;
+  let migratedCount = 0;
+  for (const t of state.tracks) {
+    if (t.idbAudio) continue;
+    if (!t.audio || typeof t.audio !== 'string' || !t.audio.startsWith('data:')) continue;
+    try {
+      const blob = await (await fetch(t.audio)).blob();
+      const fileName = (t.audioMeta && t.audioMeta.name) || ('track_' + t.id);
+      const file = new File([blob], fileName, { type: blob.type });
+      await idbSaveAudio('track_' + t.id, file);
+      // Fire-and-forget cloud upload — quota fix doesn't depend on RLS being ready
+      const ext = ((blob.type || '').split('/')[1] || 'bin').replace(/[^a-z0-9]/gi, '');
+      const sbPath = 'track_' + t.id + '.' + ext;
+      sbUploadFile(SB_BUCKET_AUDIO, sbPath, file).then(res => {
+        if (res.ok) { t.sbAudioPath = sbPath; save(); }
+      });
+      t.idbAudio = true;
+      if (!t.audioMeta) t.audioMeta = { name: fileName, type: blob.type, size: blob.size };
+      t.audio = null;
+      migratedCount++;
+    } catch (e) { console.warn('Audio migration failed for', t.id, e); }
+  }
+  if (migratedCount > 0) {
+    console.log('[Migration] Moved ' + migratedCount + ' audios from localStorage to IndexedDB');
+    save();
+    if (typeof toast === 'function') toast(`✓ ${migratedCount} audio(s) optimisé(s) — quota libéré`);
+    if (typeof renderCatalogue === 'function') renderCatalogue();
+  }
+}
+
 /* ============================
    POCKETBASE STORAGE — Self-hosted file server
    Files go to a PocketBase instance exposed via Cloudflare Tunnel.
@@ -9381,8 +9415,10 @@ try { renderAll(); } catch (e) { console.error('[Boot] renderAll failed:', e); }
 
 // One-time migration: move base64 covers from localStorage to IndexedDB (frees space)
 setTimeout(() => { migrateCoversToIDB().catch(e => console.warn('Cover migration error:', e)); }, 1500);
-// Same migration for inspirations — typically the biggest quota offender (images + videos)
+// Same migration for inspirations — image/video base64 in state.inspirations
 setTimeout(() => { migrateInspirationsToCloudIDB().catch(e => console.warn('Inspiration migration error:', e)); }, 1800);
+// Audio migration — legacy base64 audios are the heaviest single offender (6-50 MB per track)
+setTimeout(() => { migrateAudiosToIDB().catch(e => console.warn('Audio migration error:', e)); }, 2100);
 
 // User chip
 function refreshUserChip() {
