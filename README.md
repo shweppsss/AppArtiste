@@ -6,6 +6,7 @@ Sortie prévue : **vendredi 11 septembre 2026**.
 Développée par [Noname Agency](https://noname.agency) (Genève) — direction Chouaib Serir.
 
 **Live** : [deggzyteam.netlify.app](https://deggzyteam.netlify.app)
+**Mirror GitHub Pages** : [shweppsss.github.io/AppArtiste](https://shweppsss.github.io/AppArtiste/)
 
 ---
 
