@@ -4828,6 +4828,39 @@ const MiniPlayer = (() => {
 })();
 
 /* ============================
+   FILE UPLOAD LIMIT — Centralized cap
+   Single source of truth for any file upload across the app.
+   Backend enforcement: each Supabase Storage bucket's file_size_limit
+   must also be set to 1 GB in the dashboard.
+   ============================ */
+const MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024; // 1 GB
+const MAX_FILE_SIZE_LABEL = '1 Go';
+const MAX_FILE_SIZE_ERROR = 'Fichier trop volumineux. La taille maximale autorisée est de ' + MAX_FILE_SIZE_LABEL + '.';
+
+function checkFileSize(file) {
+  if (!file) return false;
+  if (file.size > MAX_FILE_SIZE) {
+    if (typeof toast === 'function') toast(MAX_FILE_SIZE_ERROR);
+    else alert(MAX_FILE_SIZE_ERROR);
+    return false;
+  }
+  return true;
+}
+
+function checkFilesSize(files) {
+  const list = Array.from(files || []);
+  const tooBig = list.filter(f => f.size > MAX_FILE_SIZE);
+  if (tooBig.length) {
+    const names = tooBig.map(f => f.name).slice(0, 3).join(', ');
+    const more = tooBig.length > 3 ? ' (+' + (tooBig.length - 3) + ')' : '';
+    const msg = MAX_FILE_SIZE_ERROR + ' Refusé : ' + names + more;
+    if (typeof toast === 'function') toast(msg);
+    else alert(msg);
+  }
+  return list.filter(f => f.size <= MAX_FILE_SIZE);
+}
+
+/* ============================
    MULTI-PROFILE AUTH
    ============================ */
 const PROFILES_KEY = 'degzzy_profiles_v1';
@@ -5074,6 +5107,7 @@ function _sbExtFromFile(file) {
 
 async function sbUploadFile(bucket, path, file) {
   if (!_sbStorageReady() || !file) return { ok: false, error: 'no-client' };
+  if (file.size > MAX_FILE_SIZE) return { ok: false, error: 'size-limit' };
   try {
     const { error } = await sb.storage.from(bucket).upload(path, file, {
       cacheControl: '3600',
@@ -6360,6 +6394,7 @@ async function hydrateAllAudios() {
 async function handleTrackAudioUpload(trackId, ev) {
   const file = ev.target.files[0];
   if (!file) return;
+  if (!checkFileSize(file)) { ev.target.value = ''; return; }
   const t = state.tracks.find(x => x.id === trackId);
   if (!t) return;
   // Update slot to show "uploading..."
@@ -6533,6 +6568,7 @@ function attachTrackEvents(id) {
     input.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
+      if (!checkFileSize(file)) { e.target.value = ''; return; }
       const field = input.dataset.field;
       const t = state.tracks.find(x => x.id === id);
       if (!t) return;
@@ -6891,7 +6927,7 @@ function assetTileHTML(cat, i, item) {
 }
 
 async function handleAssetUpload(cat, ev) {
-  const files = Array.from(ev.target.files);
+  const files = checkFilesSize(ev.target.files);
   for (const f of files) {
     try {
       const data = await fileToDataUrl(f);
@@ -6900,7 +6936,8 @@ async function handleAssetUpload(cat, ev) {
   }
   save();
   renderAssetGrid(cat);
-  toast(`${files.length} fichier(s) ajouté(s).`);
+  if (files.length) toast(`${files.length} fichier(s) ajouté(s).`);
+  ev.target.value = '';
 }
 
 function deleteAsset(cat, i) {
@@ -7046,6 +7083,7 @@ function importData() {
 function handleImport(ev) {
   const file = ev.target.files[0];
   if (!file) return;
+  if (!checkFileSize(file)) { ev.target.value = ''; return; }
   const reader = new FileReader();
   reader.onload = () => {
     try {
@@ -7539,7 +7577,8 @@ function inspiCardHTML(raw) {
 }
 
 async function handleInspiUpload(ev) {
-  const files = Array.from(ev.target.files);
+  const files = checkFilesSize(ev.target.files);
+  if (!files.length) { ev.target.value = ''; return; }
   const cat = prompt(`Catégorie pour ces ${files.length} fichier(s) ? (${INSPI_CATEGORIES.join(' / ')})`, 'Mood') || 'Mood';
   for (const f of files) {
     try {
@@ -7586,10 +7625,7 @@ function closeInspiModal() {
 // File upload — modal context
 async function handleInspiModalFile(file) {
   if (!file) return;
-  if (file.size > 8 * 1024 * 1024) { // 8 MB cap to protect localStorage / IDB
-    toast('Image trop lourde (max 8 Mo). Compresse avant import.');
-    return;
-  }
+  if (!checkFileSize(file)) return;
   try {
     const data = await fileToDataUrl(file);
     const isVideo = file.type.startsWith('video');
@@ -8621,6 +8657,7 @@ function updateTrackField(id, field, v) {
 }
 async function handleDetailCover(id, ev) {
   const f = ev.target.files[0]; if (!f) return;
+  if (!checkFileSize(f)) { ev.target.value = ''; return; }
   const t = state.tracks.find(x => x.id === id);
   if (!t) return;
   try {
@@ -8673,6 +8710,7 @@ async function hydrateDetailAudio(trackId) {
 
 async function handleDetailAudio(id, ev) {
   const f = ev.target.files[0]; if (!f) return;
+  if (!checkFileSize(f)) { ev.target.value = ''; return; }
   const t = state.tracks.find(x => x.id === id);
   if (!t) return;
   const slot = document.getElementById('detailAudioSlot-' + id);
@@ -8683,6 +8721,11 @@ async function handleDetailAudio(id, ev) {
     t.audio = null;
     t.audioMeta = { name: f.name, type: f.type, size: f.size };
     clearAudioCache(id);
+    // Background upload to Supabase Storage (consistent with handleTrackAudioUpload)
+    const sbPath = 'track_' + id + '.' + _sbExtFromFile(f);
+    sbUploadFile(SB_BUCKET_AUDIO, sbPath, f).then(res => {
+      if (res.ok) { t.sbAudioPath = sbPath; save(); }
+    });
     // Auto-detect duration
     const detected = await detectAudioDuration(f);
     if (detected) t.duration = detected;
