@@ -6598,14 +6598,14 @@ async function handleTrackAudioUpload(trackId, ev) {
     t.audio = null;
     t.audioMeta = { name: file.name, type: file.type, size: file.size };
     clearAudioCache(trackId);
-    // Upload to PocketBase in background (cross-device sync via self-hosted server)
-    pbUploadFile(file).then(res => {
+    // Upload to Supabase Storage in background (always-on cloud)
+    const sbPath = 'track_' + trackId + '.' + _sbExtFromFile(file);
+    sbUploadFile(SB_BUCKET_AUDIO, sbPath, file).then(res => {
       if (res.ok) {
-        t.pbAudioRecord = res.recordId;
-        t.pbAudioFile = res.fileName;
+        t.sbAudioPath = sbPath;
         save();
       } else {
-        console.warn('Audio upload to PocketBase failed, kept local only:', res.error);
+        console.warn('Audio upload to Supabase failed, kept local only.');
       }
     });
     // Auto-detect duration
@@ -6770,13 +6770,10 @@ function attachTrackEvents(id) {
           t.cover = null;
           t.idbCover = true;
           clearCoverCache(id);
-          // Background upload to PocketBase
-          pbUploadFile(file).then(res => {
-            if (res.ok) {
-              t.pbCoverRecord = res.recordId;
-              t.pbCoverFile = res.fileName;
-              save();
-            }
+          // Background upload to Supabase Storage
+          const sbPath = 'cover_' + id + '.' + _sbExtFromFile(file);
+          sbUploadFile(SB_BUCKET_COVERS, sbPath, file).then(res => {
+            if (res.ok) { t.sbCoverPath = sbPath; save(); }
           });
         } else {
           // Legacy fallback for other fields
@@ -8860,13 +8857,10 @@ async function handleDetailCover(id, ev) {
     t.cover = null;
     t.idbCover = true;
     clearCoverCache(id);
-    // Background upload to PocketBase
-    pbUploadFile(f).then(res => {
-      if (res.ok) {
-        t.pbCoverRecord = res.recordId;
-        t.pbCoverFile = res.fileName;
-        save();
-      }
+    // Background upload to Supabase Storage
+    const sbPath = 'cover_' + id + '.' + _sbExtFromFile(f);
+    sbUploadFile(SB_BUCKET_COVERS, sbPath, f).then(res => {
+      if (res.ok) { t.sbCoverPath = sbPath; save(); }
     });
     save();
     openDetail('track', id);
@@ -8919,13 +8913,10 @@ async function handleDetailAudio(id, ev) {
     t.audio = null;
     t.audioMeta = { name: f.name, type: f.type, size: f.size };
     clearAudioCache(id);
-    // Background upload to PocketBase (consistent with handleTrackAudioUpload)
-    pbUploadFile(f).then(res => {
-      if (res.ok) {
-        t.pbAudioRecord = res.recordId;
-        t.pbAudioFile = res.fileName;
-        save();
-      }
+    // Background upload to Supabase Storage (consistent with handleTrackAudioUpload)
+    const sbPath = 'track_' + id + '.' + _sbExtFromFile(f);
+    sbUploadFile(SB_BUCKET_AUDIO, sbPath, f).then(res => {
+      if (res.ok) { t.sbAudioPath = sbPath; save(); }
     });
     // Auto-detect duration
     const detected = await detectAudioDuration(f);
