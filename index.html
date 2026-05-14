@@ -4888,8 +4888,8 @@ const MiniPlayer = (() => {
    Backend enforcement: each Supabase Storage bucket's file_size_limit
    must also be set to 1 GB in the dashboard.
    ============================ */
-const MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024; // 1 GB
-const MAX_FILE_SIZE_LABEL = '1 Go';
+const MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024; // 10 GB
+const MAX_FILE_SIZE_LABEL = '10 Go';
 const MAX_FILE_SIZE_ERROR = 'Fichier trop volumineux. La taille maximale autorisée est de ' + MAX_FILE_SIZE_LABEL + '.';
 
 function checkFileSize(file) {
