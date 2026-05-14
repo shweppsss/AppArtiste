@@ -6121,14 +6121,37 @@ function loadState() {
 }
 
 let _saveTimer = null;
+let _saveErrorLogged = false;
 function save() {
   // Debounced save — prevents losing edits if many happen in succession
   if (_saveTimer) clearTimeout(_saveTimer);
   _saveTimer = setTimeout(() => {
     try {
-      localStorage.setItem(workspaceKey(), JSON.stringify(state));
+      const payload = JSON.stringify(state);
+      localStorage.setItem(workspaceKey(), payload);
     } catch (e) {
-      toast('⚠ Stockage local plein. Exporte une sauvegarde et supprime des médias.');
+      // Log full details once to identify the real cause
+      if (!_saveErrorLogged) {
+        _saveErrorLogged = true;
+        try {
+          const sz = JSON.stringify(state).length;
+          let lsTotal = 0;
+          for (let i = 0; i < localStorage.length; i++) {
+            lsTotal += (localStorage.getItem(localStorage.key(i)) || '').length;
+          }
+          console.error('[save] localStorage.setItem failed:', {
+            name: e && e.name,
+            message: e && e.message,
+            state_size_bytes: sz,
+            localStorage_total_bytes: lsTotal,
+            workspaceKey: workspaceKey(),
+          }, e);
+        } catch (logErr) { console.error('[save] failed:', e); }
+        setTimeout(() => { _saveErrorLogged = false; }, 60000);
+      }
+      const errName = (e && e.name) || 'Error';
+      const errMsg = (e && e.message) || '';
+      toast('⚠ Sauvegarde locale impossible (' + errName + '). Voir console.');
     }
   }, 80);
   // Push to cloud (debounced 800ms)
