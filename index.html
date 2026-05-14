@@ -5139,6 +5139,107 @@ function clearCoverCache(trackId) {
   }
 }
 
+/* INSPIRATIONS in IndexedDB — to free localStorage from base64 images/videos.
+   Mirrors the cover helpers above. Each inspiration blob is keyed by its insp.id. */
+const _inspiUrlCache = {};
+async function idbSaveInspi(key, blob) {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put({ blob, type: blob.type, size: blob.size, savedAt: Date.now() }, 'inspi_' + key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbGetInspi(key) {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const req = tx.objectStore(IDB_STORE).get('inspi_' + key);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbDeleteInspi(key) {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete('inspi_' + key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function getInspiUrl(inspId) {
+  if (_inspiUrlCache[inspId]) return _inspiUrlCache[inspId];
+  try {
+    const data = await idbGetInspi(inspId);
+    if (data && data.blob) {
+      const url = URL.createObjectURL(data.blob);
+      _inspiUrlCache[inspId] = url;
+      return url;
+    }
+  } catch (e) { console.warn('idbGetInspi failed:', e); }
+  // Fallback: download from Supabase Storage and re-cache locally
+  try {
+    const insp = (state.inspirations || []).find(x => x.id === inspId);
+    if (insp && insp.sbInspiPath) {
+      const blob = await sbDownloadBlob(SB_BUCKET_INSPI, insp.sbInspiPath);
+      if (blob) {
+        try { await idbSaveInspi(inspId, blob); } catch (e) {}
+        const url = URL.createObjectURL(blob);
+        _inspiUrlCache[inspId] = url;
+        return url;
+      }
+    }
+  } catch (e) { console.warn('cloud download inspi failed:', e); }
+  return null;
+}
+function clearInspiUrlCache(inspId) {
+  if (_inspiUrlCache[inspId]) {
+    URL.revokeObjectURL(_inspiUrlCache[inspId]);
+    delete _inspiUrlCache[inspId];
+  }
+}
+
+// One-time migration: move base64 inspiration blobs from state to IndexedDB.
+// Best-effort Supabase upload runs in background; even without it the quota issue is fixed
+// because the heavy base64 leaves localStorage immediately.
+async function migrateInspirationsToCloudIDB() {
+  if (!state.inspirations || !state.inspirations.length) return;
+  let migrated = 0;
+  for (const insp of state.inspirations) {
+    if (insp.idbInspi) continue;
+    const dataUrl =
+      (insp.data && typeof insp.data === 'string' && insp.data.startsWith('data:')) ? insp.data :
+      (insp.mediaUrl && typeof insp.mediaUrl === 'string' && insp.mediaUrl.startsWith('data:')) ? insp.mediaUrl :
+      null;
+    if (!dataUrl) continue;
+    try {
+      const blob = await (await fetch(dataUrl)).blob();
+      await idbSaveInspi(insp.id, blob);
+      const ext = ((blob.type || '').split('/')[1] || 'bin').replace(/[^a-z0-9]/gi, '');
+      const sbPath = insp.id + '.' + ext;
+      // Fire-and-forget cloud upload. If RLS isn't ready yet, IDB still has the blob.
+      sbUploadFile(SB_BUCKET_INSPI, sbPath, new File([blob], sbPath, { type: blob.type })).then(res => {
+        if (res.ok) { insp.sbInspiPath = sbPath; save(); }
+      });
+      insp.idbInspi = true;
+      insp.idbInspiType = blob.type;
+      insp.data = null;
+      if (insp.mediaUrl && insp.mediaUrl.startsWith('data:')) insp.mediaUrl = '';
+      migrated++;
+    } catch (e) {
+      console.warn('Inspiration migration failed for', insp.id, e);
+    }
+  }
+  if (migrated > 0) {
+    console.log('[Migration] Moved ' + migrated + ' inspirations from localStorage to IndexedDB');
+    save();
+    if (typeof toast === 'function') toast(`✓ ${migrated} inspiration(s) optimisée(s) — quota libéré`);
+    if (typeof renderInspirations === 'function') renderInspirations();
+  }
+}
+
 // One-time migration: convert legacy base64 covers in state to IDB
 async function migrateCoversToIDB() {
   if (!state.tracks || !state.tracks.length) return;
@@ -7695,11 +7796,20 @@ function normalizeInspi(it) {
     mediaType = 'video';
     isVideoFile = true;
   }
+  // If the blob lives in IDB (post-migration or new IDB-first upload), force the right media type
+  // from the recorded MIME so the card renders as image vs video without needing the heavy data URL.
+  const needsHydrate = !!it.idbInspi;
+  if (needsHydrate && !it.mediaType) {
+    const mime = it.idbInspiType || it.dataType || '';
+    mediaType = mime.startsWith('video') ? 'video' : 'image';
+    mediaUrl = '';
+  }
   return {
     ...it,
     _mediaType: mediaType,
     _mediaUrl: mediaUrl,
     _mediaEmbed: mediaEmbed,
+    _needsHydrate: needsHydrate,
     _isVideoFile: isVideoFile,
   };
 }
@@ -7745,6 +7855,17 @@ function renderInspirations() {
   const sorted = visible.slice().sort((a, b) => (b.addedAt || '').localeCompare(a.addedAt || ''));
   grid.className = 'inspi-grid inspi-grid-masonry';
   grid.innerHTML = sorted.map(inspiCardHTML).join('');
+  hydrateAllInspis();
+}
+
+async function hydrateAllInspis() {
+  const els = document.querySelectorAll('[data-hydrate-inspi]');
+  for (const el of els) {
+    const id = el.getAttribute('data-hydrate-inspi');
+    if (!id) continue;
+    const url = await getInspiUrl(id);
+    if (url) el.src = url;
+  }
 }
 
 function inspiCardHTML(raw) {
@@ -7756,9 +7877,13 @@ function inspiCardHTML(raw) {
   let cardKind = it._mediaType;
 
   if (it._mediaType === 'image') {
-    mediaBlock = `<div class="inspi-card-media"><img src="${it._mediaUrl}" alt="${title}" loading="lazy" /></div>`;
+    const hydrateAttr = it._needsHydrate ? ` data-hydrate-inspi="${escapeHtml(it.id)}"` : '';
+    const src = it._needsHydrate ? '' : it._mediaUrl;
+    mediaBlock = `<div class="inspi-card-media"><img src="${src}" alt="${title}" loading="lazy"${hydrateAttr} /></div>`;
   } else if (it._mediaType === 'video') {
-    mediaBlock = `<div class="inspi-card-media"><video src="${it._mediaUrl}" muted playsinline loop preload="metadata" onmouseenter="this.play()" onmouseleave="this.pause()"></video><div class="inspi-card-video-badge">${icon('play', 12)}</div></div>`;
+    const hydrateAttr = it._needsHydrate ? ` data-hydrate-inspi="${escapeHtml(it.id)}"` : '';
+    const src = it._needsHydrate ? '' : it._mediaUrl;
+    mediaBlock = `<div class="inspi-card-media"><video src="${src}" muted playsinline loop preload="metadata" onmouseenter="this.play()" onmouseleave="this.pause()"${hydrateAttr}></video><div class="inspi-card-video-badge">${icon('play', 12)}</div></div>`;
   } else if (it._mediaType === 'embed' && it._mediaEmbed) {
     const aspect = it.aspect || (it.provider === 'spotify' ? '5/2' : '16/9');
     mediaBlock = `<div class="inspi-card-media inspi-card-media-embed" style="aspect-ratio:${aspect};">${it._mediaEmbed}</div>`;
@@ -7797,18 +7922,37 @@ async function handleInspiUpload(ev) {
   const cat = prompt(`Catégorie pour ces ${files.length} fichier(s) ? (${INSPI_CATEGORIES.join(' / ')})`, 'Mood') || 'Mood';
   for (const f of files) {
     try {
-      const data = await fileToDataUrl(f);
-      state.inspirations.push({
-        id: 'in' + Date.now() + Math.random(),
-        type: 'image',
+      const id = 'in' + Date.now() + Math.random().toString(36).slice(2,6);
+      const isVideo = (f.type || '').startsWith('video');
+      // Heavy blob → IDB only. Never serialized into state JSON.
+      await idbSaveInspi(id, f);
+      const item = {
+        id,
         title: f.name.replace(/\.[^.]+$/, ''),
-        data,
-        dataType: f.type,
         category: cat,
         notes: '',
         addedAt: new Date().toISOString(),
+        mediaType: isVideo ? 'video' : 'image',
+        mediaUrl: '',
+        mediaEmbed: '',
+        provider: '',
+        // Legacy aliases for backward compat
+        type: 'image',
+        url: '',
+        data: null,
+        dataType: f.type,
+        // IDB markers
+        idbInspi: true,
+        idbInspiType: f.type,
+      };
+      state.inspirations.push(item);
+      // Cloud upload in background — fire-and-forget, doesn't block UI
+      const ext = ((f.type || '').split('/')[1] || 'bin').replace(/[^a-z0-9]/gi, '');
+      const sbPath = id + '.' + ext;
+      sbUploadFile(SB_BUCKET_INSPI, sbPath, f).then(res => {
+        if (res.ok) { item.sbInspiPath = sbPath; save(); }
       });
-    } catch (e) { toast('Erreur sur ' + f.name); }
+    } catch (e) { toast('Erreur sur ' + f.name); console.warn('handleInspiUpload:', e); }
   }
   save();
   renderInspirations();
@@ -7842,14 +7986,18 @@ async function handleInspiModalFile(file) {
   if (!file) return;
   if (!checkFileSize(file)) return;
   try {
-    const data = await fileToDataUrl(file);
-    const isVideo = file.type.startsWith('video');
+    // Preview uses a transient blob URL (revoked when draft is cleared) — NOT a base64 data URL.
+    // The actual blob lives on the draft object and is committed to IDB on save.
+    const previewUrl = URL.createObjectURL(file);
+    const isVideo = (file.type || '').startsWith('video');
     _inspiDraft = {
       mediaType: isVideo ? 'video' : 'image',
-      mediaUrl: data,
+      mediaUrl: previewUrl,
       mediaEmbed: '',
       provider: '',
       _filename: file.name,
+      _file: file,
+      _isLocalBlob: true,
     };
     showInspiPreview();
     // Auto-prefill title from filename if user hasn't typed
@@ -7908,7 +8056,7 @@ function clearInspiDraft() {
   showInspiPreview();
 }
 
-function saveInspiLink() {
+async function saveInspiLink() {
   const title = document.getElementById('inspiTitle').value.trim();
   const url = document.getElementById('inspiUrl').value.trim();
   const cat = document.getElementById('inspiCategory').value;
@@ -7917,22 +8065,37 @@ function saveInspiLink() {
   // Determine what we're saving — priority: draft (file/embed) > URL field > note-only
   let item;
   if (_inspiDraft) {
+    const id = 'in' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+    const isLocalFile = _inspiDraft._isLocalBlob && _inspiDraft._file;
     item = {
-      id: 'in' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
+      id,
       title: title || _inspiDraft._filename || (_inspiDraft.provider ? _inspiDraft.provider[0].toUpperCase() + _inspiDraft.provider.slice(1) : 'Sans titre'),
       category: cat,
       notes,
       addedAt: new Date().toISOString(),
       mediaType: _inspiDraft.mediaType,
-      mediaUrl: _inspiDraft.mediaUrl,
+      mediaUrl: isLocalFile ? '' : _inspiDraft.mediaUrl,
       mediaEmbed: _inspiDraft.mediaEmbed || '',
       provider: _inspiDraft.provider || '',
       // Legacy aliases
       type: _inspiDraft.mediaType === 'image' || _inspiDraft.mediaType === 'video' ? 'image' : (_inspiDraft.mediaType === 'note' ? 'note' : 'link'),
-      url: _inspiDraft.mediaUrl && !_inspiDraft.mediaUrl.startsWith('data:') ? _inspiDraft.mediaUrl : '',
-      data: _inspiDraft.mediaUrl && _inspiDraft.mediaUrl.startsWith('data:') ? _inspiDraft.mediaUrl : null,
-      dataType: _inspiDraft._filename ? '' : '',
+      url: !isLocalFile && _inspiDraft.mediaUrl && !_inspiDraft.mediaUrl.startsWith('data:') ? _inspiDraft.mediaUrl : '',
+      data: null,
+      dataType: isLocalFile ? (_inspiDraft._file.type || '') : '',
     };
+    if (isLocalFile) {
+      try { await idbSaveInspi(id, _inspiDraft._file); } catch (e) { console.warn('idbSaveInspi failed:', e); }
+      item.idbInspi = true;
+      item.idbInspiType = _inspiDraft._file.type;
+      // Cloud upload in background
+      const ext = ((_inspiDraft._file.type || '').split('/')[1] || 'bin').replace(/[^a-z0-9]/gi, '');
+      const sbPath = id + '.' + ext;
+      sbUploadFile(SB_BUCKET_INSPI, sbPath, _inspiDraft._file).then(res => {
+        if (res.ok) { item.sbInspiPath = sbPath; save(); }
+      });
+      // Release the preview blob URL now that the real blob is safe in IDB
+      try { URL.revokeObjectURL(_inspiDraft.mediaUrl); } catch (e) {}
+    }
   } else if (url) {
     item = buildInspiFromUrl(url, { title, category: cat, notes });
   } else if (title || notes) {
@@ -8037,9 +8200,16 @@ document.addEventListener('paste', async (e) => {
 });
 function deleteInspi(idx) {
   if (!confirm('Supprimer cette inspiration ?')) return;
+  const removed = state.inspirations[idx];
   state.inspirations.splice(idx, 1);
   save();
   renderInspirations();
+  // Clean up IDB cache + Supabase Storage in background. Don't block UX on cleanup errors.
+  if (removed && removed.id) {
+    clearInspiUrlCache(removed.id);
+    idbDeleteInspi(removed.id).catch(() => {});
+    if (removed.sbInspiPath) sbDeleteFile(SB_BUCKET_INSPI, removed.sbInspiPath).catch(() => {});
+  }
 }
 function setInspiFilter(f) {
   state.inspiFilter = f;
@@ -9211,6 +9381,8 @@ try { renderAll(); } catch (e) { console.error('[Boot] renderAll failed:', e); }
 
 // One-time migration: move base64 covers from localStorage to IndexedDB (frees space)
 setTimeout(() => { migrateCoversToIDB().catch(e => console.warn('Cover migration error:', e)); }, 1500);
+// Same migration for inspirations — typically the biggest quota offender (images + videos)
+setTimeout(() => { migrateInspirationsToCloudIDB().catch(e => console.warn('Inspiration migration error:', e)); }, 1800);
 
 // User chip
 function refreshUserChip() {
