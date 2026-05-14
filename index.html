@@ -5036,20 +5036,29 @@ async function getTrackAudioUrl(trackId) {
       return _audioCache[trackId];
     }
   } catch (e) { console.warn('idbGetAudio failed:', e); }
-  // Fallback: try Supabase Storage if a remote path is recorded on the track
+  // Fallback 1: PocketBase (current primary storage)
   try {
     const track = (state.tracks || []).find(x => x.id === trackId);
+    if (track && track.pbAudioRecord && track.pbAudioFile) {
+      const blob = await pbDownloadBlob(track.pbAudioRecord, track.pbAudioFile);
+      if (blob) {
+        try { await idbSaveAudio('track_' + trackId, new File([blob], (track.audioMeta && track.audioMeta.name) || track.pbAudioFile, { type: blob.type })); } catch (e) {}
+        const url = URL.createObjectURL(blob);
+        _audioCache[trackId] = { url, name: (track.audioMeta && track.audioMeta.name) || track.pbAudioFile, type: blob.type, size: blob.size };
+        return _audioCache[trackId];
+      }
+    }
+    // Fallback 2: legacy Supabase Storage path
     if (track && track.sbAudioPath) {
       const blob = await sbDownloadBlob(SB_BUCKET_AUDIO, track.sbAudioPath);
       if (blob) {
-        // Cache locally for next time (offline + speed)
         try { await idbSaveAudio('track_' + trackId, new File([blob], (track.audioMeta && track.audioMeta.name) || 'audio', { type: blob.type })); } catch (e) {}
         const url = URL.createObjectURL(blob);
         _audioCache[trackId] = { url, name: (track.audioMeta && track.audioMeta.name) || 'audio', type: blob.type, size: blob.size };
         return _audioCache[trackId];
       }
     }
-  } catch (e) { console.warn('sbDownload audio failed:', e); }
+  } catch (e) { console.warn('cloud download audio failed:', e); }
   return null;
 }
 function clearAudioCache(trackId) {
@@ -5098,9 +5107,19 @@ async function getTrackCoverUrl(trackId) {
       return url;
     }
   } catch (e) { console.warn('idbGetCover failed:', e); }
-  // Fallback: Supabase Storage
+  // Fallback 1: PocketBase
   try {
     const track = (state.tracks || []).find(x => x.id === trackId);
+    if (track && track.pbCoverRecord && track.pbCoverFile) {
+      const blob = await pbDownloadBlob(track.pbCoverRecord, track.pbCoverFile);
+      if (blob) {
+        try { await idbSaveCover(trackId, blob); } catch (e) {}
+        const url = URL.createObjectURL(blob);
+        _coverCache[trackId] = url;
+        return url;
+      }
+    }
+    // Fallback 2: legacy Supabase Storage
     if (track && track.sbCoverPath) {
       const blob = await sbDownloadBlob(SB_BUCKET_COVERS, track.sbCoverPath);
       if (blob) {
@@ -5110,7 +5129,7 @@ async function getTrackCoverUrl(trackId) {
         return url;
       }
     }
-  } catch (e) { console.warn('sbDownload cover failed:', e); }
+  } catch (e) { console.warn('cloud download cover failed:', e); }
   return null;
 }
 function clearCoverCache(trackId) {
@@ -5143,10 +5162,65 @@ async function migrateCoversToIDB() {
 }
 
 /* ============================
-   SUPABASE STORAGE — Audio, covers, inspirations
-   Files are uploaded to Supabase Storage (cross-device sync, no quota issues
-   for heavy WAV files), and cached in IndexedDB for fast offline reads.
+   POCKETBASE STORAGE — Self-hosted file server
+   Files go to a PocketBase instance exposed via Cloudflare Tunnel.
+   IndexedDB stays as the local cache for fast offline reads.
+   URL can be overridden at runtime via localStorage.setItem('pb_url', '...').
    ============================ */
+// The PocketBase URL is INTENTIONALLY not committed to source.
+// Each user sets it in their browser via localStorage:
+//   localStorage.setItem('pb_url', 'https://your-tunnel.trycloudflare.com')
+// Keeping the URL private prevents drive-by scanning of the repo from
+// reaching the self-hosted server.
+const PB_COLLECTION = 'files';
+function getPocketBaseUrl() {
+  try {
+    const v = localStorage.getItem('pb_url');
+    if (v && /^https?:\/\//.test(v)) return v.replace(/\/$/, '');
+  } catch (e) {}
+  return '';
+}
+
+async function pbUploadFile(file) {
+  if (!file) return { ok: false, error: 'no-file' };
+  if (file.size > MAX_FILE_SIZE) return { ok: false, error: 'size-limit' };
+  const url = getPocketBaseUrl();
+  if (!url) return { ok: false, error: 'no-url' };
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch(url + '/api/collections/' + PB_COLLECTION + '/records', {
+      method: 'POST',
+      body: fd,
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error('HTTP ' + res.status + ' ' + body.slice(0, 200));
+    }
+    const data = await res.json();
+    return { ok: true, recordId: data.id, fileName: data.file };
+  } catch (e) {
+    console.warn('[pbUpload]', e);
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
+}
+
+async function pbDownloadBlob(recordId, fileName) {
+  if (!recordId || !fileName) return null;
+  const url = getPocketBaseUrl();
+  if (!url) return null;
+  try {
+    const res = await fetch(url + '/api/files/' + PB_COLLECTION + '/' + recordId + '/' + encodeURIComponent(fileName));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.blob();
+  } catch (e) {
+    console.warn('[pbDownload]', e);
+    return null;
+  }
+}
+
+/* Legacy Supabase Storage bucket names — kept so old uploads remain readable.
+   No new writes go here. */
 const SB_BUCKET_AUDIO = 'audio';
 const SB_BUCKET_COVERS = 'covers';
 const SB_BUCKET_INSPI = 'inspirations';
@@ -6524,14 +6598,14 @@ async function handleTrackAudioUpload(trackId, ev) {
     t.audio = null;
     t.audioMeta = { name: file.name, type: file.type, size: file.size };
     clearAudioCache(trackId);
-    // Upload to Supabase Storage in background (cross-device sync, no quota issues)
-    const sbPath = 'track_' + trackId + '.' + _sbExtFromFile(file);
-    sbUploadFile(SB_BUCKET_AUDIO, sbPath, file).then(res => {
+    // Upload to PocketBase in background (cross-device sync via self-hosted server)
+    pbUploadFile(file).then(res => {
       if (res.ok) {
-        t.sbAudioPath = sbPath;
+        t.pbAudioRecord = res.recordId;
+        t.pbAudioFile = res.fileName;
         save();
-      } else if (slot) {
-        console.warn('Audio upload to cloud failed, kept local only.');
+      } else {
+        console.warn('Audio upload to PocketBase failed, kept local only:', res.error);
       }
     });
     // Auto-detect duration
@@ -6696,10 +6770,13 @@ function attachTrackEvents(id) {
           t.cover = null;
           t.idbCover = true;
           clearCoverCache(id);
-          // Background upload to Supabase Storage
-          const sbPath = 'cover_' + id + '.' + _sbExtFromFile(file);
-          sbUploadFile(SB_BUCKET_COVERS, sbPath, file).then(res => {
-            if (res.ok) { t.sbCoverPath = sbPath; save(); }
+          // Background upload to PocketBase
+          pbUploadFile(file).then(res => {
+            if (res.ok) {
+              t.pbCoverRecord = res.recordId;
+              t.pbCoverFile = res.fileName;
+              save();
+            }
           });
         } else {
           // Legacy fallback for other fields
@@ -8783,10 +8860,13 @@ async function handleDetailCover(id, ev) {
     t.cover = null;
     t.idbCover = true;
     clearCoverCache(id);
-    // Background upload to Supabase Storage
-    const sbPath = 'cover_' + id + '.' + _sbExtFromFile(f);
-    sbUploadFile(SB_BUCKET_COVERS, sbPath, f).then(res => {
-      if (res.ok) { t.sbCoverPath = sbPath; save(); }
+    // Background upload to PocketBase
+    pbUploadFile(f).then(res => {
+      if (res.ok) {
+        t.pbCoverRecord = res.recordId;
+        t.pbCoverFile = res.fileName;
+        save();
+      }
     });
     save();
     openDetail('track', id);
@@ -8839,10 +8919,13 @@ async function handleDetailAudio(id, ev) {
     t.audio = null;
     t.audioMeta = { name: f.name, type: f.type, size: f.size };
     clearAudioCache(id);
-    // Background upload to Supabase Storage (consistent with handleTrackAudioUpload)
-    const sbPath = 'track_' + id + '.' + _sbExtFromFile(f);
-    sbUploadFile(SB_BUCKET_AUDIO, sbPath, f).then(res => {
-      if (res.ok) { t.sbAudioPath = sbPath; save(); }
+    // Background upload to PocketBase (consistent with handleTrackAudioUpload)
+    pbUploadFile(f).then(res => {
+      if (res.ok) {
+        t.pbAudioRecord = res.recordId;
+        t.pbAudioFile = res.fileName;
+        save();
+      }
     });
     // Auto-detect duration
     const detected = await detectAudioDuration(f);
