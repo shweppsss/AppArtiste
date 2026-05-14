@@ -15,8 +15,7 @@ Développée par [Noname Agency](https://noname.agency) (Genève) — direction 
 - **Frontend** : HTML / CSS / JavaScript vanilla — single-file `index.html` (~9000 lignes)
 - **Backend** : Supabase (PostgreSQL + Realtime + Auth)
 - **Hébergement** : Netlify
-- **PWA** : Service Worker `sw.js` + manifest pour installation iOS / Android
-- **Notifications push** : Web Push Protocol + VAPID, via Supabase Edge Function
+- **PWA** : Service Worker `sw.js` + manifest pour installation iOS / Android (offline caching)
 
 Pas de build step, pas de framework, pas de node_modules. Le déploiement est aussi simple que glisser le contenu du dossier sur Netlify.
 
@@ -68,34 +67,11 @@ L'app pointe vers un projet Supabase existant. Les credentials (`URL` + `anon ke
 Pour repartir de zéro avec un nouveau projet Supabase :
 
 1. Créer un projet sur [supabase.com](https://supabase.com).
-2. SQL Editor → exécuter `supabase/001-relational-schema.sql` puis `supabase/002-push-subscriptions.sql`.
-3. Authentication → Providers → Email → désactiver "Confirm email" pour simplifier le flow d'invitation.
-4. Authentication → URL Configuration → ajouter `https://<ton-domaine>/**` dans Redirect URLs.
-5. Récupérer URL projet + anon key (Settings → API) → remplacer dans `index.html`.
-
-## Notifications push (déploiement)
-
-Voir `supabase/functions/send-push/index.ts` pour les détails. Étapes résumées :
-
-```bash
-# 1. Générer les clés VAPID
-npx web-push generate-vapid-keys
-
-# 2. Coller la clé publique dans index.html (cherche VAPID_PUBLIC_KEY)
-# 3. Déployer l'Edge Function
-npm install -g supabase
-supabase login
-supabase link --project-ref <project-id>
-supabase secrets set \
-  VAPID_PUBLIC_KEY='...' \
-  VAPID_PRIVATE_KEY='...' \
-  VAPID_SUBJECT='mailto:chouaib.serir.pro@gmail.com'
-supabase functions deploy send-push --no-verify-jwt
-
-# 4. Dashboard Supabase → Database → Webhooks → Create
-#    Table: notifications, Event: Insert
-#    URL: https://<project-id>.supabase.co/functions/v1/send-push
-```
+2. SQL Editor → exécuter `supabase/004-workspace-table.sql` (la table principale) + `supabase/003-storage-policies.sql` (RLS sur les 5 buckets : audio, covers, inspirations, clips, capsules).
+3. Storage → créer les 5 buckets (`audio`, `covers`, `inspirations`, `clips`, `capsules`) en mode **privé**.
+4. Authentication → Providers → Email → activer "Confirm email" pour la prod.
+5. Authentication → URL Configuration → restreindre Redirect URLs aux domaines de déploiement.
+6. Récupérer URL projet + anon key (Settings → API) → remplacer dans `index.html`.
 
 ## Déploiement Netlify
 
@@ -134,7 +110,7 @@ Conseils pratiques :
 
 - **Test local avant push** : ouvre `index.html` dans le navigateur, vérifie que tu n'as rien cassé.
 - **Commit petits et fréquents** : un commit = une intention claire. Plus facile à reviewer et à revert.
-- **Ne pas commit de secrets** : la `anon key` Supabase est OK (publique par design), mais jamais coller la `service_role key` ou les clés VAPID privées dans le repo. Elles vivent dans les secrets Supabase / Netlify env vars.
+- **Ne pas commit de secrets** : la `anon key` Supabase est OK (publique par design), mais jamais coller la `service_role key` dans le repo.
 
 ## Historique des phases
 
@@ -143,7 +119,6 @@ Voir `docs/RECAP.md` pour l'historique détaillé des 8+ phases de développemen
 ## Roadmap (ouverte)
 
 - [ ] Migration JSONB monolithe → tables relationnelles (SQL en place, JS à câbler)
-- [ ] Cloche + Inbox UI consommant la table `notifications`
 - [ ] Refactor des 60+ `onclick` inline en event delegation
 - [ ] Light mode (tokens définis, variants à coder)
 - [ ] Refonte pages restantes : Budget, KPI, Plan, Assets

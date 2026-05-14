@@ -3999,64 +3999,9 @@
     .pin-dots { gap: 20px; margin-bottom: 26px; }
   }
 
-  /* ============================
-     PWA — Push permission sheet (Apple bottom-sheet style)
-     ============================ */
-  .push-perm-scrim {
-    position: fixed; inset: 0;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(20px) saturate(160%);
-    -webkit-backdrop-filter: blur(20px) saturate(160%);
-    z-index: 9000;
-    opacity: 0; pointer-events: none;
-    transition: opacity var(--duration-base) var(--ease-standard);
-  }
-  .push-perm-scrim.open { opacity: 1; pointer-events: auto; }
-  .push-perm-sheet {
-    position: fixed; left: 50%; bottom: 0;
-    transform: translateX(-50%) translateY(100%);
-    width: min(440px, calc(100% - 16px));
-    margin: 0 8px 8px;
-    background: var(--surface-solid);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-xl);
-    box-shadow: 0 24px 80px -12px rgba(0, 0, 0, 0.8);
-    padding: var(--space-7) var(--space-6) calc(var(--space-6) + env(safe-area-inset-bottom));
-    z-index: 9001;
-    transition: transform var(--duration-base) var(--ease-decelerate);
-  }
-  .push-perm-scrim.open .push-perm-sheet { transform: translateX(-50%) translateY(0); }
-  .push-perm-icon {
-    width: 56px; height: 56px;
-    border-radius: 16px;
-    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-    display: flex; align-items: center; justify-content: center;
-    margin: 0 auto var(--space-5);
-    box-shadow: 0 8px 24px -8px var(--accent);
-  }
-  .push-perm-title {
-    font: var(--font-display-m);
-    letter-spacing: var(--tracking-display, normal);
-    text-align: center;
-    color: var(--text);
-    margin-bottom: var(--space-2);
-  }
-  .push-perm-body {
-    font: var(--font-body);
-    letter-spacing: var(--tracking-body, normal);
-    text-align: center;
-    color: var(--text-soft);
-    margin-bottom: var(--space-6);
-    line-height: 1.45;
-  }
-  .push-perm-actions { display: flex; flex-direction: column; gap: var(--space-2); }
-  .push-perm-actions .btn { width: 100%; height: 44px; }
-  .push-perm-fineprint {
-    font: var(--font-caption);
-    color: var(--text-dim);
-    text-align: center;
-    margin-top: var(--space-4);
-  }
+  /* Push permission sheet styles removed — push notifications system retired,
+     see commit history if reinstating (database webhook trigger never fired
+     anyway so the system was a dead-end). */
 
   /* iOS install hint banner (n'apparait que si Safari iOS non-standalone) */
   .ios-install-banner {
@@ -9775,15 +9720,14 @@ document.querySelectorAll('.tab-item, .nav-item, .btn, .status-chip').forEach(el
 });
 
 /* ============================================================================
-   PWA — Service Worker + Push notifications (Web Push protocol)
+   PWA — Service Worker registration (offline cache only)
    ============================================================================ */
+// Push notifications were retired: the architecture relied on a Database
+// Webhook firing on notifications-table INSERT, but the frontend stores all
+// data in workspace.state JSON and never INSERTs to that table — the webhook
+// (and therefore send-push) never fired. The whole subsystem was dead code.
+// The Service Worker stays for offline caching only.
 
-// ⚠ VAPID PUBLIC KEY — à remplacer par la clé publique générée côté serveur.
-// Générer avec : `npx web-push generate-vapid-keys`
-// La clé PRIVÉE reste sur le serveur (Edge Function Supabase), jamais ici.
-const VAPID_PUBLIC_KEY = '__REPLACE_WITH_VAPID_PUBLIC_KEY__';
-
-// ---- 1. Service Worker registration ----------------------------------------
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js')
@@ -9801,133 +9745,9 @@ if ('serviceWorker' in navigator) {
       })
       .catch(err => console.warn('[SW] registration failed:', err));
   });
-
-  // Listen to messages from the SW (notification click handler)
-  navigator.serviceWorker.addEventListener('message', (event) => {
-    if (event.data && event.data.type === 'notification-click') {
-      try {
-        const u = new URL(event.data.url || '/', location.origin);
-        const view = u.searchParams.get('view');
-        if (view && typeof activate === 'function') activate(view);
-      } catch (e) { /* ignore */ }
-      if (event.data.notifId && typeof markNotifRead === 'function') {
-        markNotifRead(event.data.notifId);
-      }
-    }
-  });
 }
 
-// ---- 2. Permission sheet UI (Apple-style bottom sheet) ---------------------
-function _ensurePushPermSheet() {
-  if (document.getElementById('pushPermScrim')) return;
-  document.body.insertAdjacentHTML('beforeend', `
-    <div class="push-perm-scrim" id="pushPermScrim" role="dialog" aria-modal="true" aria-labelledby="pushPermTitle">
-      <div class="push-perm-sheet">
-        <div class="push-perm-icon">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/>
-            <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>
-          </svg>
-        </div>
-        <div class="push-perm-title" id="pushPermTitle">Reste au courant en temps réel</div>
-        <div class="push-perm-body">Active les notifications pour être prévenu des nouveaux événements, tâches urgentes et messages de l'équipe — même quand l'app est fermée.</div>
-        <div class="push-perm-actions">
-          <button type="button" class="btn btn-primary" onclick="acceptPushPermission()">Activer les notifications</button>
-          <button type="button" class="btn btn-ghost" onclick="dismissPushPermission()">Pas maintenant</button>
-        </div>
-        <div class="push-perm-fineprint">Tu peux changer d'avis à tout moment dans les réglages.</div>
-      </div>
-    </div>`);
-}
-function showPushPermissionSheet() {
-  _ensurePushPermSheet();
-  const scrim = document.getElementById('pushPermScrim');
-  if (scrim) requestAnimationFrame(() => scrim.classList.add('open'));
-}
-function hidePushPermissionSheet() {
-  const scrim = document.getElementById('pushPermScrim');
-  if (scrim) scrim.classList.remove('open');
-}
-
-async function acceptPushPermission() {
-  hidePushPermissionSheet();
-  try {
-    const granted = await requestNotificationPermission();
-    if (granted) {
-      const sub = await subscribeForPush();
-      if (sub) await savePushSubscription(sub);
-      if (typeof toast === 'function') toast('Notifications activées.');
-    } else {
-      if (typeof toast === 'function') toast('Notifications refusées. Tu peux changer dans les réglages.');
-    }
-  } catch (e) {
-    console.warn('[Push] accept failed:', e);
-    if (typeof toast === 'function') toast('Activation impossible — vérifie l\'installation PWA.');
-  }
-  try { localStorage.setItem('noname_push_prompted', '1'); } catch (e) {}
-}
-function dismissPushPermission() {
-  hidePushPermissionSheet();
-  try { localStorage.setItem('noname_push_prompted', '1'); } catch (e) {}
-}
-
-// ---- 3. Permission API + subscribe -----------------------------------------
-async function requestNotificationPermission() {
-  if (!('Notification' in window)) return false;
-  if (Notification.permission === 'granted') return true;
-  if (Notification.permission === 'denied') return false;
-  const result = await Notification.requestPermission();
-  return result === 'granted';
-}
-
-async function subscribeForPush() {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    console.warn('[Push] PushManager not supported');
-    return null;
-  }
-  if (!VAPID_PUBLIC_KEY || VAPID_PUBLIC_KEY.startsWith('__REPLACE')) {
-    console.warn('[Push] VAPID_PUBLIC_KEY not configured — subscription skipped');
-    return null;
-  }
-  const reg = await navigator.serviceWorker.ready;
-  let sub = await reg.pushManager.getSubscription();
-  if (!sub) {
-    sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: _urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-    });
-  }
-  return sub;
-}
-
-async function savePushSubscription(sub) {
-  if (!sb || !_currentUser || !sub) return;
-  const payload = sub.toJSON();
-  try {
-    const { error } = await sb.from('push_subscriptions').upsert({
-      user_id: _currentUser.id,
-      endpoint: payload.endpoint,
-      p256dh: payload.keys && payload.keys.p256dh,
-      auth_key: payload.keys && payload.keys.auth,
-      user_agent: navigator.userAgent || '',
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'user_id,endpoint' });
-    if (error) throw error;
-  } catch (e) {
-    console.warn('[Push] saveSubscription failed:', e);
-  }
-}
-
-function _urlBase64ToUint8Array(base64) {
-  const padding = '='.repeat((4 - base64.length % 4) % 4);
-  const b64 = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const raw = atob(b64);
-  const arr = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
-  return arr;
-}
-
-// ---- 4. iOS standalone install hint ----------------------------------------
+// iOS standalone install hint (kept — pure PWA install nudge, not push-related)
 function maybeShowIosInstallBanner() {
   const ua = navigator.userAgent || '';
   const isIos = /iPhone|iPad|iPod/.test(ua);
@@ -9939,29 +9759,14 @@ function maybeShowIosInstallBanner() {
     <div class="ios-install-banner show" id="iosInstallBanner">
       <div class="ios-install-banner-body">
         <div class="ios-install-banner-title">Installe Noname sur ton écran d'accueil</div>
-        <div class="ios-install-banner-sub">Partager → « Sur l'écran d'accueil » pour activer les notifs.</div>
+        <div class="ios-install-banner-sub">Partager → « Sur l'écran d'accueil » pour un accès rapide hors-ligne.</div>
       </div>
       <button type="button" class="ios-install-banner-close" onclick="document.getElementById('iosInstallBanner').remove(); try{localStorage.setItem('noname_ios_install_dismissed','1');}catch(e){}" aria-label="Fermer">✕</button>
     </div>`);
 }
 
-// ---- 5. Auto-prompt for push (uniquement si standalone + auth + 1ère fois) -
-async function maybePromptForPush() {
-  if (!('Notification' in window)) return;
-  if (Notification.permission !== 'default') return;
-  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-  if (!isStandalone) return;  // iOS exige standalone, Android l'apprécie
-  const alreadyPrompted = (() => { try { return localStorage.getItem('noname_push_prompted') === '1'; } catch (e) { return false; } })();
-  if (alreadyPrompted) return;
-  if (!_currentUser) return;  // attend que l'utilisateur soit auth + dans l'app
-  setTimeout(showPushPermissionSheet, 2000);
-}
-
 window.addEventListener('load', () => {
-  setTimeout(() => {
-    maybeShowIosInstallBanner();
-    maybePromptForPush();
-  }, 1800);
+  setTimeout(maybeShowIosInstallBanner, 1800);
 });
 </script>
 </body>
