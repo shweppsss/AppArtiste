@@ -5298,6 +5298,41 @@ async function migrateCoversToIDB() {
   }
 }
 
+// One-time cleanup: a previous bug in attachTrackEvents wrote audio data URLs
+// to state.tracks[].undefined (literal "undefined" key) when the audio file
+// picker fired its change event without a data-field attribute. The audio was
+// also correctly saved to IDB, so we just need to strip the rogue field.
+async function cleanRogueTrackFields() {
+  if (!state.tracks || !state.tracks.length) return;
+  let cleaned = 0;
+  let recoveredBytes = 0;
+  for (const t of state.tracks) {
+    // The literal string key "undefined" appears on tracks that hit the bug.
+    if (Object.prototype.hasOwnProperty.call(t, 'undefined')) {
+      const val = t['undefined'];
+      // If it's a base64 audio that's not yet in IDB, save it to IDB before deleting.
+      if (typeof val === 'string' && val.startsWith('data:') && !t.idbAudio) {
+        try {
+          const blob = await (await fetch(val)).blob();
+          const fileName = (t.audioMeta && t.audioMeta.name) || ('track_' + t.id + '.bin');
+          await idbSaveAudio('track_' + t.id, new File([blob], fileName, { type: blob.type }));
+          t.idbAudio = true;
+          if (!t.audioMeta) t.audioMeta = { name: fileName, type: blob.type, size: blob.size };
+          t.audio = null;
+        } catch (e) { console.warn('Rogue field recovery failed for', t.id, e); }
+      }
+      recoveredBytes += (typeof val === 'string' ? val.length : 0);
+      delete t['undefined'];
+      cleaned++;
+    }
+  }
+  if (cleaned > 0) {
+    console.log('[Migration] Cleaned ' + cleaned + ' tracks of rogue undefined field (~' + Math.round(recoveredBytes/1024) + ' KB freed)');
+    save();
+    if (typeof renderCatalogue === 'function') renderCatalogue();
+  }
+}
+
 // One-time migration: legacy base64 audios (t.audio data: URL) → IndexedDB.
 // Largest quota offender by far when a single base64 audio can be 6-50 MB.
 // Best-effort SB upload to the 'audio' bucket runs in background.
@@ -7027,8 +7062,12 @@ function trackCardHTML(t) {
 function attachTrackEvents(id) {
   const card = document.querySelector(`.track-card[data-id="${id}"]`);
   if (!card) return;
-  // File inputs — covers go to IndexedDB now
-  card.querySelectorAll('input[type="file"]').forEach(input => {
+  // File inputs — covers go to IndexedDB. Other file inputs on the card
+  // (e.g. the audio uploader) have their own onchange handlers and DO NOT carry
+  // data-field — skip them here, otherwise we'd double-handle the upload AND
+  // write a 30+ MB base64 blob into t[undefined] (yes, undefined as a key — that
+  // was a real bug that bloated state to 43 MB and broke localStorage save).
+  card.querySelectorAll('input[type="file"][data-field]').forEach(input => {
     input.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -7047,10 +7086,6 @@ function attachTrackEvents(id) {
           sbUploadFile(SB_BUCKET_COVERS, sbPath, file).then(res => {
             if (res.ok) { t.sbCoverPath = sbPath; save(); }
           });
-        } else {
-          // Legacy fallback for other fields
-          const dataUrl = await fileToDataUrl(file);
-          t[field] = dataUrl;
         }
         save();
         renderCatalogue();
@@ -9635,6 +9670,9 @@ setTimeout(() => {
 try { renderTabbar(); } catch (e) { console.error('[Boot] renderTabbar failed:', e); }
 try { renderAll(); } catch (e) { console.error('[Boot] renderAll failed:', e); }
 
+// Rogue field cleanup — runs FIRST because it can free 30+ MB on a single track
+// and unblocks subsequent save() calls that were failing on quota.
+setTimeout(() => { cleanRogueTrackFields().catch(e => console.warn('Rogue cleanup error:', e)); }, 1200);
 // One-time migration: move base64 covers from localStorage to IndexedDB (frees space)
 setTimeout(() => { migrateCoversToIDB().catch(e => console.warn('Cover migration error:', e)); }, 1500);
 // Same migration for inspirations — image/video base64 in state.inspirations
