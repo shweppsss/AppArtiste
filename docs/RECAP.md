@@ -19,7 +19,7 @@
 - **Single-file** : `index.html` (~8786 lignes, ~325 Ko, vanilla HTML/CSS/JS)
 - **Backend** : Supabase (URL `https://xlfdftydddgpxdfchyzo.supabase.co`, anon key hardcodée dans le fichier)
 - **Storage local** : IndexedDB pour covers/audio lourds, localStorage pour le state + cache
-- **Hébergement** : Netlify (drag-drop deploy) — site `deggzyteam.netlify.app`
+- **Hébergement** : GitHub Pages — site `shweppsss.github.io/AppArtiste` (auto-deploy sur push main)
 - **Auth** : Email + password Supabase → PIN local 4 chiffres par appareil → entrée app
 - **Sync** : Realtime Supabase (workspace `degzzy_main`) + retry exponentiel + flush avant unload
 - **Identité visuelle** : noir profond `#08080A` + accent **Apple Blue `#0A84FF`** (pivot brand fait en phase 6, plus aucun doré résiduel)
@@ -198,12 +198,12 @@ Le site était bloqué sur l'écran de splash sans afficher le formulaire de log
 3. **L'IA pourra reprendre** sans tout relire — les tokens, conventions et architecture sont décrits ici
 
 ### Pour déployer maintenant
-Drag-drop `index.html` sur https://app.netlify.com/sites/deggzyteam/deploys, hard refresh (`Cmd+Shift+R`) sur deggzyteam.netlify.app.
+`git push origin main` (ou merger une PR sur `main`) → GitHub Pages build automatique en ~60s. État visible sur `Actions → pages-build-deployment`. Hard refresh (`Cmd+Shift+R`) sur `shweppsss.github.io/AppArtiste/`.
 
 ### Setup Supabase (déjà fait)
 - Tables `profiles` et `workspace` créées avec RLS
-- "Confirm email" désactivé dans Auth → Providers → Email
-- Redirect URLs : `https://deggzyteam.netlify.app/**`
+- Storage policies `auth_full_<bucket>` sur les 5 buckets (audio, covers, inspirations, clips, capsules)
+- Redirect URLs à restreindre à `https://shweppsss.github.io/AppArtiste/**`
 
 ## Limites assumées et signalées au user
 
