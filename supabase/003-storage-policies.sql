@@ -1,9 +1,9 @@
 -- =============================================================================
--- STORAGE POLICIES — Permissions sur les buckets audio / covers / inspirations
+-- STORAGE POLICIES — Permissions sur les buckets audio / covers / inspirations / clips / capsules
 -- =============================================================================
 -- À exécuter dans Supabase Dashboard → SQL Editor → New query → Run
--- Prérequis : avoir créé les 3 buckets `audio`, `covers`, `inspirations`
---             dans Storage AVANT de lancer ce script.
+-- Prérequis : avoir créé les 5 buckets `audio`, `covers`, `inspirations`,
+--             `clips`, `capsules` dans Storage AVANT de lancer ce script.
 -- Idempotent : peut être ré-exécuté sans casser l'existant.
 -- =============================================================================
 
@@ -82,6 +82,46 @@ create policy "app_storage_inspirations_update" on storage.objects
 create policy "app_storage_inspirations_delete" on storage.objects
   for delete to authenticated
   using (bucket_id = 'inspirations');
+
+-- =============================================================================
+-- BUCKET : clips  (vidéos courtes — TikTok, Reels, teasers)
+-- =============================================================================
+create policy "app_storage_clips_select" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'clips');
+
+create policy "app_storage_clips_insert" on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'clips');
+
+create policy "app_storage_clips_update" on storage.objects
+  for update to authenticated
+  using (bucket_id = 'clips')
+  with check (bucket_id = 'clips');
+
+create policy "app_storage_clips_delete" on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'clips');
+
+-- =============================================================================
+-- BUCKET : capsules  (formats long — interviews, BTS, documentaires)
+-- =============================================================================
+create policy "app_storage_capsules_select" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'capsules');
+
+create policy "app_storage_capsules_insert" on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'capsules');
+
+create policy "app_storage_capsules_update" on storage.objects
+  for update to authenticated
+  using (bucket_id = 'capsules')
+  with check (bucket_id = 'capsules');
+
+create policy "app_storage_capsules_delete" on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'capsules');
 
 -- =============================================================================
 -- Vérification
