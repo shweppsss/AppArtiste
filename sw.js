@@ -3,8 +3,11 @@
  * =============================================================================
  * Rôles :
  *   1. Cache offline (l'app s'ouvre sans réseau avec la dernière version connue).
- *   2. Push notifications natives (event 'push' + 'notificationclick').
- *   3. Auto-update : nouvelle version → notif silencieuse → bascule au prochain boot.
+ *   2. Auto-update : nouvelle version → bascule au prochain boot.
+ *
+ * Push notifications removed — the underlying notifications-table INSERT
+ * webhook never fired (frontend stores everything in workspace.state JSON),
+ * so the entire push subsystem was dead code.
  *
  * IMPORTANT — bump CACHE_VERSION à chaque release pour invalider le cache offline.
  * ============================================================================= */
@@ -126,73 +129,6 @@ async function cacheFirst(req) {
     return new Response('', { status: 504 });
   }
 }
-
-// ============================================================================
-// PUSH — réception d'une notification push depuis le serveur
-// ============================================================================
-// Payload attendu (JSON, envoyé par l'Edge Function send-push) :
-// {
-//   "title": "Degzzy a ajouté un événement",
-//   "body":  "Shoot photo principal — vendredi 20 mai",
-//   "icon":  "/icon-192.png",       // optionnel
-//   "badge": "/icon-192.png",       // optionnel (Android only — affiché en monochrome)
-//   "tag":   "event-abc123",        // optionnel (dédup : remplace une notif avec même tag)
-//   "url":   "/?view=calendrier",   // ouvre cette URL au clic
-//   "renotify": false
-// }
-self.addEventListener('push', (event) => {
-  let data = {};
-  try {
-    data = event.data ? event.data.json() : {};
-  } catch (e) {
-    data = { title: 'Noname', body: event.data ? event.data.text() : '' };
-  }
-
-  const title = data.title || 'Noname';
-  const options = {
-    body:    data.body || '',
-    icon:    data.icon || '/icon-192.png',
-    badge:   data.badge || '/icon-192.png',
-    tag:     data.tag || undefined,
-    renotify: data.renotify === true,
-    data:    { url: data.url || '/', notifId: data.notifId || null },
-    vibrate: [80, 40, 80],          // pattern haptique (Android only)
-    requireInteraction: false,
-    silent:  false
-  };
-
-  event.waitUntil(self.registration.showNotification(title, options));
-});
-
-// ============================================================================
-// NOTIFICATIONCLICK — focus la fenêtre existante ou ouvre une nouvelle
-// ============================================================================
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  const targetUrl = (event.notification.data && event.notification.data.url) || '/';
-  const notifId = event.notification.data && event.notification.data.notifId;
-
-  event.waitUntil((async () => {
-    const winClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-
-    // 1. Si une fenêtre de l'app est déjà ouverte → focus + post message
-    for (const c of winClients) {
-      try {
-        const cUrl = new URL(c.url);
-        if (cUrl.origin === self.location.origin) {
-          await c.focus();
-          c.postMessage({ type: 'notification-click', url: targetUrl, notifId });
-          return;
-        }
-      } catch (e) { /* ignore */ }
-    }
-
-    // 2. Sinon ouvrir une nouvelle fenêtre
-    if (self.clients.openWindow) {
-      await self.clients.openWindow(targetUrl);
-    }
-  })());
-});
 
 // ============================================================================
 // MESSAGE — protocole interne (l'app peut demander au SW de se mettre à jour)
