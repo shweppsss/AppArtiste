@@ -4948,6 +4948,20 @@ async function getTrackAudioUrl(trackId) {
       return _audioCache[trackId];
     }
   } catch (e) { console.warn('idbGetAudio failed:', e); }
+  // Fallback: try Supabase Storage if a remote path is recorded on the track
+  try {
+    const track = (state.tracks || []).find(x => x.id === trackId);
+    if (track && track.sbAudioPath) {
+      const blob = await sbDownloadBlob(SB_BUCKET_AUDIO, track.sbAudioPath);
+      if (blob) {
+        // Cache locally for next time (offline + speed)
+        try { await idbSaveAudio('track_' + trackId, new File([blob], (track.audioMeta && track.audioMeta.name) || 'audio', { type: blob.type })); } catch (e) {}
+        const url = URL.createObjectURL(blob);
+        _audioCache[trackId] = { url, name: (track.audioMeta && track.audioMeta.name) || 'audio', type: blob.type, size: blob.size };
+        return _audioCache[trackId];
+      }
+    }
+  } catch (e) { console.warn('sbDownload audio failed:', e); }
   return null;
 }
 function clearAudioCache(trackId) {
@@ -4996,6 +5010,19 @@ async function getTrackCoverUrl(trackId) {
       return url;
     }
   } catch (e) { console.warn('idbGetCover failed:', e); }
+  // Fallback: Supabase Storage
+  try {
+    const track = (state.tracks || []).find(x => x.id === trackId);
+    if (track && track.sbCoverPath) {
+      const blob = await sbDownloadBlob(SB_BUCKET_COVERS, track.sbCoverPath);
+      if (blob) {
+        try { await idbSaveCover(trackId, blob); } catch (e) {}
+        const url = URL.createObjectURL(blob);
+        _coverCache[trackId] = url;
+        return url;
+      }
+    }
+  } catch (e) { console.warn('sbDownload cover failed:', e); }
   return null;
 }
 function clearCoverCache(trackId) {
@@ -5024,6 +5051,64 @@ async function migrateCoversToIDB() {
     console.log('[Migration] Moved ' + migratedCount + ' covers from localStorage to IndexedDB');
     save();
     toast(`✓ ${migratedCount} cover(s) optimisée(s) — stockage libéré`);
+  }
+}
+
+/* ============================
+   SUPABASE STORAGE — Audio, covers, inspirations
+   Files are uploaded to Supabase Storage (cross-device sync, no quota issues
+   for heavy WAV files), and cached in IndexedDB for fast offline reads.
+   ============================ */
+const SB_BUCKET_AUDIO = 'audio';
+const SB_BUCKET_COVERS = 'covers';
+const SB_BUCKET_INSPI = 'inspirations';
+
+function _sbStorageReady() {
+  return !!(sb && sb.storage);
+}
+
+function _sbExtFromFile(file) {
+  const m = (file && file.name || '').match(/\.([a-zA-Z0-9]+)$/);
+  return m ? m[1].toLowerCase() : 'bin';
+}
+
+async function sbUploadFile(bucket, path, file) {
+  if (!_sbStorageReady() || !file) return { ok: false, error: 'no-client' };
+  try {
+    const { error } = await sb.storage.from(bucket).upload(path, file, {
+      cacheControl: '3600',
+      upsert: true,
+      contentType: file.type || undefined,
+    });
+    if (error) throw error;
+    return { ok: true, path };
+  } catch (e) {
+    console.warn('[sbUpload] ' + bucket + '/' + path, e);
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
+}
+
+async function sbDownloadBlob(bucket, path) {
+  if (!_sbStorageReady() || !path) return null;
+  try {
+    const { data, error } = await sb.storage.from(bucket).download(path);
+    if (error) throw error;
+    return data || null;
+  } catch (e) {
+    console.warn('[sbDownload] ' + bucket + '/' + path, e);
+    return null;
+  }
+}
+
+async function sbDeleteFile(bucket, path) {
+  if (!_sbStorageReady() || !path) return false;
+  try {
+    const { error } = await sb.storage.from(bucket).remove([path]);
+    if (error) throw error;
+    return true;
+  } catch (e) {
+    console.warn('[sbDelete] ' + bucket + '/' + path, e);
+    return false;
   }
 }
 
@@ -6286,6 +6371,16 @@ async function handleTrackAudioUpload(trackId, ev) {
     t.audio = null;
     t.audioMeta = { name: file.name, type: file.type, size: file.size };
     clearAudioCache(trackId);
+    // Upload to Supabase Storage in background (cross-device sync, no quota issues)
+    const sbPath = 'track_' + trackId + '.' + _sbExtFromFile(file);
+    sbUploadFile(SB_BUCKET_AUDIO, sbPath, file).then(res => {
+      if (res.ok) {
+        t.sbAudioPath = sbPath;
+        save();
+      } else if (slot) {
+        console.warn('Audio upload to cloud failed, kept local only.');
+      }
+    });
     // Auto-detect duration
     const detected = await detectAudioDuration(file);
     if (detected) t.duration = detected;
@@ -6447,6 +6542,11 @@ function attachTrackEvents(id) {
           t.cover = null;
           t.idbCover = true;
           clearCoverCache(id);
+          // Background upload to Supabase Storage
+          const sbPath = 'cover_' + id + '.' + _sbExtFromFile(file);
+          sbUploadFile(SB_BUCKET_COVERS, sbPath, file).then(res => {
+            if (res.ok) { t.sbCoverPath = sbPath; save(); }
+          });
         } else {
           // Legacy fallback for other fields
           const dataUrl = await fileToDataUrl(file);
@@ -8528,6 +8628,11 @@ async function handleDetailCover(id, ev) {
     t.cover = null;
     t.idbCover = true;
     clearCoverCache(id);
+    // Background upload to Supabase Storage
+    const sbPath = 'cover_' + id + '.' + _sbExtFromFile(f);
+    sbUploadFile(SB_BUCKET_COVERS, sbPath, f).then(res => {
+      if (res.ok) { t.sbCoverPath = sbPath; save(); }
+    });
     save();
     openDetail('track', id);
   } catch (e) {
