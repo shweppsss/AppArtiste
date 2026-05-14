@@ -12,10 +12,10 @@
 <link rel="apple-touch-icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' rx='40' fill='%230A0A0A'/><text x='90' y='115' font-family='-apple-system,system-ui' font-size='86' font-weight='700' fill='%230A84FF' text-anchor='middle'>D</text></svg>" />
 <link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%230A0A0A'/><text x='32' y='42' font-family='-apple-system,system-ui' font-size='34' font-weight='700' fill='%230A84FF' text-anchor='middle'>D</text></svg>" />
 <!-- PWA — manifest + apple-touch-icons (placer les .png à la racine du déploiement Netlify) -->
-<link rel="manifest" href="/manifest.json" />
-<link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png" />
-<link rel="apple-touch-icon" sizes="167x167" href="/icon-167.png" />
-<link rel="apple-touch-icon" sizes="152x152" href="/icon-152.png" />
+<link rel="manifest" href="./manifest.json" />
+<link rel="apple-touch-icon" sizes="180x180" href="./icon-180.png" />
+<link rel="apple-touch-icon" sizes="167x167" href="./icon-167.png" />
+<link rel="apple-touch-icon" sizes="152x152" href="./icon-152.png" />
 <title>Noname × Degzzy — Workspace R.I.C.H</title>
 <!-- Supabase SDK pour la synchro temps réel + auth -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -9490,7 +9490,7 @@ const VAPID_PUBLIC_KEY = '__REPLACE_WITH_VAPID_PUBLIC_KEY__';
 // ---- 1. Service Worker registration ----------------------------------------
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js', { scope: '/' })
+    navigator.serviceWorker.register('./sw.js')
       .then(reg => {
         console.log('[SW] registered, scope:', reg.scope);
         reg.addEventListener('updatefound', () => {
