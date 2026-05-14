@@ -1031,10 +1031,41 @@
     border-radius: 2px;
     font-size: 10.5px;
     color: var(--text);
-    cursor: pointer;
+    cursor: grab;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    /* Disable native scroll/zoom gestures while pointer is on a pill so touch
+       drag works without scrolling the page underneath. */
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: opacity var(--duration-fast) var(--ease-standard),
+                transform var(--duration-fast) var(--ease-standard);
+  }
+  .cal-event:hover { transform: translateX(1px); }
+  .cal-event:active { cursor: grabbing; }
+  /* Source pill while a drag is in progress — fades so the user knows it's lifted */
+  .cal-event-dragging {
+    opacity: 0.35;
+    cursor: grabbing;
+    pointer-events: none;
+  }
+  /* Floating clone that follows the pointer */
+  .cal-event-ghost {
+    opacity: 0.92;
+    transform: scale(1.06);
+    box-shadow: 0 18px 48px -10px rgba(0,0,0,0.65), 0 4px 12px -4px rgba(0,0,0,0.4);
+    border-radius: 4px;
+    pointer-events: none;
+    transition: none;
+  }
+  /* Drop-target highlight on the cell underneath the pointer */
+  .cal-cell-droptarget {
+    background: var(--accent-soft) !important;
+    outline: 1.5px solid var(--accent);
+    outline-offset: -1.5px;
+    transition: background-color var(--duration-fast) var(--ease-standard);
   }
   .cal-event[data-type="release"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
   .cal-event[data-type="tiktok"] { border-color: #7AB5C9; }
@@ -7585,9 +7616,9 @@ function renderCalendar() {
     const isToday = date.getTime() === today.getTime();
     const events = state.events.filter(e => e.date === iso);
     html += `
-      <div class="cal-cell ${isToday ? 'today' : ''}" onclick="openEventModal('${iso}')">
+      <div class="cal-cell ${isToday ? 'today' : ''}" data-date="${iso}">
         <div class="cal-day">${day}</div>
-        ${events.sort((a,b) => (a.time||'99:99').localeCompare(b.time||'99:99')).map(e => `<div class="cal-event" data-type="${e.type}" onclick="event.stopPropagation(); openDetail('event','${e.id}')">${e.time ? `<strong>${formatEventTime(e.time)}</strong> ` : ''}${escapeHtml(e.title)}</div>`).join('')}
+        ${events.sort((a,b) => (a.time||'99:99').localeCompare(b.time||'99:99')).map(e => `<div class="cal-event" data-type="${escapeHtml(e.type)}" data-event-id="${escapeHtml(e.id)}">${e.time ? `<strong>${formatEventTime(e.time)}</strong> ` : ''}${escapeHtml(e.title)}</div>`).join('')}
       </div>
     `;
   }
@@ -7598,6 +7629,148 @@ function renderCalendar() {
     html += `<div class="cal-cell muted"><div class="cal-day">${i}</div></div>`;
   }
   grid.innerHTML = html;
+  attachCalendarInteractions();
+}
+
+/* CALENDAR INTERACTIONS — drag&drop events between days + click-to-open.
+   Uses Pointer Events so the same code path covers mouse, trackpad, and touch.
+   No HTML5 drag/drop API (mobile-broken). Threshold of 5px before activating
+   drag so a tap still counts as a click. Ghost is a clone of the pill that
+   follows the pointer; the cell underneath is highlighted as drop target.
+   On drop with a date change → mutate event, save() pushes to cloud → other
+   users see the move via the existing realtime channel. */
+let _calDrag = null;
+
+function attachCalendarInteractions() {
+  const grid = document.getElementById('calendarGrid');
+  if (!grid) return;
+  // Empty cells (current month, no event in it) open the create modal
+  grid.querySelectorAll('.cal-cell[data-date]').forEach(cell => {
+    cell.addEventListener('click', (e) => {
+      if (_calDrag && _calDrag.started) return; // drag in progress, swallow
+      if (e.target.closest('.cal-event')) return; // click on event, handled elsewhere
+      openEventModal(cell.dataset.date);
+    });
+  });
+  // Event pills — drag to move, click (no drag) to open detail
+  grid.querySelectorAll('.cal-event[data-event-id]').forEach(pill => {
+    pill.addEventListener('pointerdown', _onCalEventPointerDown);
+  });
+}
+
+function _onCalEventPointerDown(e) {
+  // Only primary button on mouse; allow all touch/pen pointers
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  const pill = e.currentTarget;
+  const id = pill.dataset.eventId;
+  if (!id) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const rect = pill.getBoundingClientRect();
+  try { pill.setPointerCapture(e.pointerId); } catch (err) {}
+  _calDrag = {
+    id, pill,
+    pointerId: e.pointerId,
+    startX: e.clientX, startY: e.clientY,
+    offsetX: e.clientX - rect.left,
+    offsetY: e.clientY - rect.top,
+    width: rect.width,
+    ghost: null,
+    started: false,
+    lastCell: null,
+  };
+  pill.addEventListener('pointermove', _onCalEventPointerMove);
+  pill.addEventListener('pointerup', _onCalEventPointerUp);
+  pill.addEventListener('pointercancel', _onCalEventPointerUp);
+  // Escape cancels the drag — restores the original position
+  document.addEventListener('keydown', _onCalDragKeydown);
+}
+
+function _onCalEventPointerMove(e) {
+  if (!_calDrag) return;
+  const dx = e.clientX - _calDrag.startX;
+  const dy = e.clientY - _calDrag.startY;
+  if (!_calDrag.started) {
+    // 5px threshold before activating — preserves click semantics
+    if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+    _calDrag.started = true;
+    _calDrag.pill.classList.add('cal-event-dragging');
+    // Build a floating ghost (clone of the pill) following the pointer
+    const ghost = _calDrag.pill.cloneNode(true);
+    ghost.classList.add('cal-event-ghost');
+    ghost.style.position = 'fixed';
+    ghost.style.pointerEvents = 'none';
+    ghost.style.zIndex = '9999';
+    ghost.style.width = _calDrag.width + 'px';
+    ghost.style.left = (e.clientX - _calDrag.offsetX) + 'px';
+    ghost.style.top = (e.clientY - _calDrag.offsetY) + 'px';
+    document.body.appendChild(ghost);
+    _calDrag.ghost = ghost;
+    if (typeof haptic === 'function') haptic(15);
+  }
+  if (_calDrag.ghost) {
+    _calDrag.ghost.style.left = (e.clientX - _calDrag.offsetX) + 'px';
+    _calDrag.ghost.style.top = (e.clientY - _calDrag.offsetY) + 'px';
+  }
+  // Drop target detection — temporarily hide ghost so elementFromPoint reaches the cell
+  if (_calDrag.ghost) _calDrag.ghost.style.display = 'none';
+  const elBelow = document.elementFromPoint(e.clientX, e.clientY);
+  if (_calDrag.ghost) _calDrag.ghost.style.display = '';
+  const candidate = elBelow ? elBelow.closest('.cal-cell[data-date]') : null;
+  if (candidate !== _calDrag.lastCell) {
+    if (_calDrag.lastCell) _calDrag.lastCell.classList.remove('cal-cell-droptarget');
+    if (candidate) candidate.classList.add('cal-cell-droptarget');
+    _calDrag.lastCell = candidate;
+  }
+}
+
+function _onCalEventPointerUp(e) {
+  if (!_calDrag) return;
+  // Snapshot what we need BEFORE cleanup nulls out _calDrag
+  const id = _calDrag.id;
+  const wasDrag = _calDrag.started;
+  const dropDate = _calDrag.lastCell ? _calDrag.lastCell.dataset.date : null;
+  _cleanupCalDrag(e);
+
+  if (wasDrag) {
+    if (!dropDate) return; // dropped outside any valid cell — silent revert
+    const ev = state.events.find(x => x.id === id);
+    if (!ev || ev.date === dropDate) return;
+    ev.date = dropDate;
+    save();
+    renderCalendar();
+    renderDashboard();
+    toast('📅 Déplacé au ' + new Date(dropDate).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }));
+    if (typeof haptic === 'function') haptic(20);
+    return;
+  }
+  // No drag — treat as a click on the pill, open the detail
+  if (typeof openDetail === 'function') openDetail('event', id);
+}
+
+function _onCalDragKeydown(e) {
+  if (e.key === 'Escape' && _calDrag) {
+    e.preventDefault();
+    // Reset started=false BEFORE cleanup so the up handler treats this as a no-op
+    _calDrag.started = false;
+    _calDrag.lastCell = null;
+    _cleanupCalDrag(null);
+  }
+}
+
+function _cleanupCalDrag(e) {
+  if (!_calDrag) return;
+  if (_calDrag.ghost) { _calDrag.ghost.remove(); _calDrag.ghost = null; }
+  if (_calDrag.pill) {
+    _calDrag.pill.classList.remove('cal-event-dragging');
+    _calDrag.pill.removeEventListener('pointermove', _onCalEventPointerMove);
+    _calDrag.pill.removeEventListener('pointerup', _onCalEventPointerUp);
+    _calDrag.pill.removeEventListener('pointercancel', _onCalEventPointerUp);
+    if (e) { try { _calDrag.pill.releasePointerCapture(e.pointerId); } catch (err) {} }
+  }
+  if (_calDrag.lastCell) _calDrag.lastCell.classList.remove('cal-cell-droptarget');
+  document.removeEventListener('keydown', _onCalDragKeydown);
+  _calDrag = null;
 }
 
 function changeMonth(delta) {
