@@ -3165,8 +3165,57 @@
   /* ============================
      DASHBOARD — éditorial, hero-first
      ============================ */
+  .dash-greeting {
+    padding: 28px 0 0;
+  }
+  .dash-greeting-main {
+    font: var(--font-body-l);
+    letter-spacing: var(--tracking-body-l);
+    color: var(--text-soft);
+    line-height: 1.3;
+  }
+  .dash-greeting-name {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .dash-greeting-aka-line {
+    font-size: 13px;
+    font-style: italic;
+    color: var(--text-dim);
+    margin-top: 2px;
+    line-height: 1.3;
+  }
+  .dash-greeting-aka { color: var(--text-dim); }
+  .dash-greeting-alias {
+    color: var(--accent);
+    font-weight: 600;
+    font-style: italic;
+    cursor: text;
+    outline: none;
+    border-bottom: 1px dashed transparent;
+    padding: 0 4px;
+    border-radius: 4px;
+    min-width: 1em;
+    display: inline-block;
+    transition: border-color var(--duration-fast) var(--ease-standard),
+                background var(--duration-fast) var(--ease-standard);
+  }
+  .dash-greeting-alias:hover {
+    border-bottom-color: var(--border-strong);
+  }
+  .dash-greeting-alias:focus {
+    border-bottom-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .dash-greeting-alias:empty::before {
+    content: attr(data-placeholder);
+    color: var(--text-dim);
+    font-weight: 500;
+    opacity: 0.7;
+  }
+
   .dash-hero {
-    padding: 32px 4px 40px;
+    padding: 18px 4px 32px;
     margin-bottom: 8px;
   }
   .dash-hero-eyebrow {
@@ -4259,6 +4308,12 @@
 
     <!-- ============================ DASHBOARD ============================ -->
     <div class="view active" id="view-dashboard">
+      <!-- GREETING perso : Bienvenue {name} / aka {alias éditable} -->
+      <section class="dash-greeting">
+        <div class="dash-greeting-main">Bienvenue <strong class="dash-greeting-name" id="dashGreetingName">—</strong></div>
+        <div class="dash-greeting-aka-line" id="dashGreetingAkaLine"><span class="dash-greeting-aka">aka </span><span class="dash-greeting-alias" id="dashGreetingAlias" contenteditable="true" spellcheck="false" data-placeholder="ajouter un alias" role="textbox" aria-label="Ton alias"></span></div>
+      </section>
+
       <!-- HERO : date, jours restants, phase contexte -->
       <section class="dash-hero">
         <div class="dash-hero-eyebrow" id="dashHeroEyebrow"></div>
@@ -4266,6 +4321,9 @@
         <div class="dash-hero-label" id="dashHeroLabel">jours avant R.I.C.H</div>
         <div class="dash-hero-phase" id="dashHeroPhase"></div>
       </section>
+
+      <!-- STATS STRIP — Prochaine sortie + Tâches actives, mises en avant -->
+      <section class="dash-stats" id="dashboardCards"></section>
 
       <!-- URGENT inline — n'apparaît QUE s'il y a au moins une urgence -->
       <section class="dash-urgent" id="urgentBox" hidden></section>
@@ -4289,9 +4347,6 @@
         </header>
         <div class="dash-upcoming" id="dashboardUpcoming"></div>
       </section>
-
-      <!-- STATS STRIP — discret, en bas -->
-      <section class="dash-stats" id="dashboardCards"></section>
     </div>
 
     <!-- ============================ TODOS ============================ -->
@@ -5238,6 +5293,20 @@ async function ensureProfileExists(name, role) {
   } catch (e) { console.warn('ensureProfileExists:', e); }
 }
 
+async function saveAliasToCloud(alias) {
+  if (!sb || !_currentUser) return false;
+  const value = (alias || '').trim();
+  try {
+    const { error } = await sb.from('profiles').update({ alias: value || null }).eq('id', _currentUser.id);
+    if (error) throw error;
+    if (_currentProfile) _currentProfile.alias = value || null;
+    return true;
+  } catch (e) {
+    console.warn('saveAliasToCloud:', e);
+    return false;
+  }
+}
+
 async function loadWorkspaceFromCloud() {
   if (!sb) return false;
   try {
@@ -6085,6 +6154,8 @@ const PROJECT_DATE = new Date('2026-09-11');
 function renderDashboard() {
   // Cache DOM refs once — avoid 7+ getElementById calls per render.
   const dash = {
+    greetingName: document.getElementById('dashGreetingName'),
+    greetingAlias: document.getElementById('dashGreetingAlias'),
     eyebrow: document.getElementById('dashHeroEyebrow'),
     count:   document.getElementById('dashHeroCount'),
     label:   document.getElementById('dashHeroLabel'),
@@ -6095,6 +6166,53 @@ function renderDashboard() {
     upcoming: document.getElementById('dashboardUpcoming'),
     cards:   document.getElementById('dashboardCards'),
   };
+
+  /* GREETING — Bienvenue {name} · aka {alias} */
+  if (dash.greetingName) {
+    const name = (_currentProfile && _currentProfile.name)
+      || (state.user && state.user.name)
+      || (_currentUser && _currentUser.email ? _currentUser.email.split('@')[0] : 'à toi');
+    dash.greetingName.textContent = name;
+  }
+  if (dash.greetingAlias) {
+    const alias = (_currentProfile && _currentProfile.alias) || '';
+    // Only overwrite if not currently focused (don't fight the user typing)
+    if (document.activeElement !== dash.greetingAlias) {
+      dash.greetingAlias.textContent = alias;
+    }
+    // Bind handlers once
+    if (!dash.greetingAlias.dataset.bound) {
+      dash.greetingAlias.dataset.bound = '1';
+      dash.greetingAlias.addEventListener('blur', async () => {
+        const val = dash.greetingAlias.textContent.trim();
+        const current = (_currentProfile && _currentProfile.alias) || '';
+        if (val === current) return;
+        const ok = await saveAliasToCloud(val);
+        if (ok) {
+          toast(val ? `Alias enregistré : ${val}` : 'Alias retiré');
+        } else {
+          toast('Échec de sauvegarde — réessaie');
+          dash.greetingAlias.textContent = current;
+        }
+      });
+      dash.greetingAlias.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          dash.greetingAlias.blur();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          dash.greetingAlias.textContent = (_currentProfile && _currentProfile.alias) || '';
+          dash.greetingAlias.blur();
+        }
+      });
+      // Prevent rich-text paste (strip formatting)
+      dash.greetingAlias.addEventListener('paste', (e) => {
+        e.preventDefault();
+        const text = (e.clipboardData || window.clipboardData).getData('text').slice(0, 32);
+        document.execCommand('insertText', false, text);
+      });
+    }
+  }
 
   const today = new Date();
   const daysToProject = Math.max(0, Math.ceil((PROJECT_DATE - today) / (1000*60*60*24)));
