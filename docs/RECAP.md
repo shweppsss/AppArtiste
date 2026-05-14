@@ -19,7 +19,7 @@
 - **Single-file** : `index.html` (~8786 lignes, ~325 Ko, vanilla HTML/CSS/JS)
 - **Backend** : Supabase (URL `https://xlfdftydddgpxdfchyzo.supabase.co`, anon key hardcodée dans le fichier)
 - **Storage local** : IndexedDB pour covers/audio lourds, localStorage pour le state + cache
-- **Hébergement** : GitHub Pages — site `shweppsss.github.io/AppArtiste` (auto-deploy sur push main)
+- **Hébergement** : GitHub Pages — site `shweppsss.github.io/Deggzy-Team` (auto-deploy sur push main)
 - **Auth** : Email + password Supabase → PIN local 4 chiffres par appareil → entrée app
 - **Sync** : Realtime Supabase (workspace `degzzy_main`) + retry exponentiel + flush avant unload
 - **Identité visuelle** : noir profond `#08080A` + accent **Apple Blue `#0A84FF`** (pivot brand fait en phase 6, plus aucun doré résiduel)
@@ -198,12 +198,12 @@ Le site était bloqué sur l'écran de splash sans afficher le formulaire de log
 3. **L'IA pourra reprendre** sans tout relire — les tokens, conventions et architecture sont décrits ici
 
 ### Pour déployer maintenant
-`git push origin main` (ou merger une PR sur `main`) → GitHub Pages build automatique en ~60s. État visible sur `Actions → pages-build-deployment`. Hard refresh (`Cmd+Shift+R`) sur `shweppsss.github.io/AppArtiste/`.
+`git push origin main` (ou merger une PR sur `main`) → GitHub Pages build automatique en ~60s. État visible sur `Actions → pages-build-deployment`. Hard refresh (`Cmd+Shift+R`) sur `shweppsss.github.io/Deggzy-Team/`.
 
 ### Setup Supabase (déjà fait)
 - Tables `profiles` et `workspace` créées avec RLS
 - Storage policies `auth_full_<bucket>` sur les 5 buckets (audio, covers, inspirations, clips, capsules)
-- Redirect URLs à restreindre à `https://shweppsss.github.io/AppArtiste/**`
+- Redirect URLs à restreindre à `https://shweppsss.github.io/Deggzy-Team/**`
 
 ## Limites assumées et signalées au user
 

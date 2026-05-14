@@ -5,7 +5,7 @@ Sortie prévue : **vendredi 11 septembre 2026**.
 
 Développée par [Noname Agency](https://noname.agency) (Genève) — direction Chouaib Serir.
 
-**Live** : [shweppsss.github.io/AppArtiste](https://shweppsss.github.io/AppArtiste/)
+**Live** : [shweppsss.github.io/Deggzy-Team](https://shweppsss.github.io/Deggzy-Team/)
 
 ---
 
@@ -75,7 +75,7 @@ Pour repartir de zéro avec un nouveau projet Supabase :
    - `supabase/005-drop-push-subscriptions.sql` (clean push legacy)
 4. **Storage → bucket → Policies** (UI, pas SQL — le SQL Editor n'a pas les droits owner) → créer une policy par bucket : "For full customization" → toutes les ops (SELECT/INSERT/UPDATE/DELETE) → role `authenticated` → expression `bucket_id = '<nom>'`.
 5. **Authentication → Sign In / Up → Email** → activer "Confirm email" pour la prod.
-6. **Authentication → URL Configuration** → restreindre Redirect URLs au domaine GitHub Pages (`https://<user>.github.io/AppArtiste/**`).
+6. **Authentication → URL Configuration** → restreindre Redirect URLs au domaine GitHub Pages (`https://<user>.github.io/<repo>/**`).
 7. **Settings → API** → récupérer URL projet + anon key → remplacer `SUPABASE_DEFAULTS` dans `index.html`.
 
 ## Déploiement GitHub Pages
