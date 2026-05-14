@@ -7,21 +7,32 @@
 -- Idempotent : peut être ré-exécuté sans casser l'existant.
 -- =============================================================================
 
--- Active RLS sur storage.objects (normalement déjà actif sur Supabase)
-alter table storage.objects enable row level security;
+-- Note : RLS est déjà actif par défaut sur storage.objects sur Supabase.
+-- On NE peut PAS faire `alter table storage.objects` depuis le SQL Editor
+-- (la table appartient à supabase_storage_admin, on aurait ERROR 42501).
+-- On se contente de drop+create les policies, ce qui est autorisé.
 
--- Helper : supprime les policies existantes pour éviter les doublons
-do $$
-declare r record;
-begin
-  for r in
-    select policyname from pg_policies
-    where schemaname = 'storage' and tablename = 'objects'
-      and policyname like 'app_storage_%'
-  loop
-    execute format('drop policy if exists %I on storage.objects', r.policyname);
-  end loop;
-end $$;
+-- Cleanup : drop les policies créées par ce script si elles existent déjà
+drop policy if exists "app_storage_audio_select"        on storage.objects;
+drop policy if exists "app_storage_audio_insert"        on storage.objects;
+drop policy if exists "app_storage_audio_update"        on storage.objects;
+drop policy if exists "app_storage_audio_delete"        on storage.objects;
+drop policy if exists "app_storage_covers_select"       on storage.objects;
+drop policy if exists "app_storage_covers_insert"       on storage.objects;
+drop policy if exists "app_storage_covers_update"       on storage.objects;
+drop policy if exists "app_storage_covers_delete"       on storage.objects;
+drop policy if exists "app_storage_inspirations_select" on storage.objects;
+drop policy if exists "app_storage_inspirations_insert" on storage.objects;
+drop policy if exists "app_storage_inspirations_update" on storage.objects;
+drop policy if exists "app_storage_inspirations_delete" on storage.objects;
+drop policy if exists "app_storage_clips_select"        on storage.objects;
+drop policy if exists "app_storage_clips_insert"        on storage.objects;
+drop policy if exists "app_storage_clips_update"        on storage.objects;
+drop policy if exists "app_storage_clips_delete"        on storage.objects;
+drop policy if exists "app_storage_capsules_select"     on storage.objects;
+drop policy if exists "app_storage_capsules_insert"     on storage.objects;
+drop policy if exists "app_storage_capsules_update"     on storage.objects;
+drop policy if exists "app_storage_capsules_delete"     on storage.objects;
 
 -- =============================================================================
 -- BUCKET : audio  (WAV, MP3, FLAC, etc.)
