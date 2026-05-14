@@ -7,10 +7,13 @@
  *   3. Auto-update : nouvelle version → notif silencieuse → bascule au prochain boot.
  *
  * IMPORTANT — bump CACHE_VERSION à chaque release pour invalider le cache offline.
+ * Format : 'noname-YYYYMMDD-N' où YYYYMMDD est la date du release et N un compteur
+ * incrémental dans la journée si plusieurs déploys. Activate event purge tous les
+ * caches dont le nom ne matche pas EXACTEMENT CACHE_VERSION ou RUNTIME_CACHE.
  * ============================================================================= */
 
-const CACHE_VERSION = 'noname-v1';
-const RUNTIME_CACHE = 'noname-runtime-v1';
+const CACHE_VERSION = 'noname-20260515-1';
+const RUNTIME_CACHE = 'noname-runtime-20260515-1';
 
 // Ressources mises en cache au moment de l'install. Garde la liste minimale :
 // l'app est mono-fichier, donc index.html + manifest + icônes suffisent.
