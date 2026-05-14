@@ -47,7 +47,17 @@ fi
 HOOK="$REPO_ROOT/.git/hooks/post-commit"
 cat > "$HOOK" <<'POST_COMMIT_EOF'
 #!/bin/sh
+# Skip auto-push during rebase/merge/cherry-pick (HEAD detached or replaying)
+GIT_DIR=$(git rev-parse --git-dir 2>/dev/null)
+if [ -d "$GIT_DIR/rebase-merge" ] || [ -d "$GIT_DIR/rebase-apply" ] || [ -f "$GIT_DIR/MERGE_HEAD" ] || [ -f "$GIT_DIR/CHERRY_PICK_HEAD" ]; then
+  exit 0
+fi
+
 branch=$(git rev-parse --abbrev-ref HEAD)
+if [ "$branch" = "HEAD" ] || [ -z "$branch" ]; then
+  exit 0
+fi
+
 echo ""
 echo "→ Push automatique vers origin/$branch..."
 if git push origin "$branch"; then
