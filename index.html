@@ -4276,6 +4276,12 @@
     <div class="nav-item" data-view="inspirations">
       <span class="nav-icon">✦</span> Inspirations
     </div>
+    <div class="nav-item" data-view="clips">
+      <span class="nav-icon">▶</span> Clips
+    </div>
+    <div class="nav-item" data-view="capsules">
+      <span class="nav-icon">◐</span> Capsules
+    </div>
     <div class="nav-item" data-view="assets">
       <span class="nav-icon">⬚</span> DA / Assets
     </div>
@@ -4392,6 +4398,36 @@
 
       <div class="inspi-filter" id="inspiFilter"></div>
       <div class="inspi-grid" id="inspiGrid"></div>
+    </div>
+
+    <!-- ============================ CLIPS ============================ -->
+    <div class="view" id="view-clips">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Clips</div>
+          <div class="page-subtitle">Formats courts — teasers, TikTok/Reels, snippets. Drop tes vidéos ici, elles sont stockées en local et synchronisées avec le cloud.</div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-primary" onclick="document.getElementById('clipUpload').click()">+ Ajouter un clip</button>
+          <input type="file" id="clipUpload" accept="video/*" multiple style="display:none" onchange="handleVideoUpload('clips', event)" />
+        </div>
+      </div>
+      <div class="inspi-grid inspi-grid-masonry" id="clipsGrid"></div>
+    </div>
+
+    <!-- ============================ CAPSULES ============================ -->
+    <div class="view" id="view-capsules">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Capsules</div>
+          <div class="page-subtitle">Formats longs — interviews, BTS, documentaires, lives. Pour les contenus &gt; 1 minute qui méritent leur propre archive.</div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-primary" onclick="document.getElementById('capsuleUpload').click()">+ Ajouter une capsule</button>
+          <input type="file" id="capsuleUpload" accept="video/*" multiple style="display:none" onchange="handleVideoUpload('capsules', event)" />
+        </div>
+      </div>
+      <div class="inspi-grid inspi-grid-masonry" id="capsulesGrid"></div>
     </div>
 
     <!-- ============================ CATALOGUE ============================ -->
@@ -5359,6 +5395,82 @@ async function pbDownloadBlob(recordId, fileName) {
 const SB_BUCKET_AUDIO = 'audio';
 const SB_BUCKET_COVERS = 'covers';
 const SB_BUCKET_INSPI = 'inspirations';
+const SB_BUCKET_CLIPS = 'clips';
+const SB_BUCKET_CAPSULES = 'capsules';
+
+/* VIDEO COLLECTIONS (Clips + Capsules) — shared storage + render pipeline.
+   Both sections store full-resolution video blobs in IDB and best-effort
+   in Supabase Storage. State carries only metadata, never base64. */
+const VIDEO_SECTIONS = {
+  clips:    { stateKey: 'clips',    bucket: SB_BUCKET_CLIPS,    idbPrefix: 'clip_',    gridId: 'clipsGrid',    label: 'clip' },
+  capsules: { stateKey: 'capsules', bucket: SB_BUCKET_CAPSULES, idbPrefix: 'capsule_', gridId: 'capsulesGrid', label: 'capsule' },
+};
+const _videoUrlCache = {};
+
+async function idbSaveVideo(section, key, blob) {
+  const db = await openIDB();
+  const cfg = VIDEO_SECTIONS[section];
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put({ blob, type: blob.type, size: blob.size, savedAt: Date.now() }, cfg.idbPrefix + key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbGetVideo(section, key) {
+  const db = await openIDB();
+  const cfg = VIDEO_SECTIONS[section];
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const req = tx.objectStore(IDB_STORE).get(cfg.idbPrefix + key);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbDeleteVideo(section, key) {
+  const db = await openIDB();
+  const cfg = VIDEO_SECTIONS[section];
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete(cfg.idbPrefix + key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function getVideoUrl(section, id) {
+  const cacheKey = section + ':' + id;
+  if (_videoUrlCache[cacheKey]) return _videoUrlCache[cacheKey];
+  try {
+    const data = await idbGetVideo(section, id);
+    if (data && data.blob) {
+      const url = URL.createObjectURL(data.blob);
+      _videoUrlCache[cacheKey] = url;
+      return url;
+    }
+  } catch (e) { console.warn('idbGetVideo failed:', e); }
+  // Fallback: Supabase Storage
+  try {
+    const cfg = VIDEO_SECTIONS[section];
+    const item = (state[cfg.stateKey] || []).find(x => x.id === id);
+    if (item && item.sbPath) {
+      const blob = await sbDownloadBlob(cfg.bucket, item.sbPath);
+      if (blob) {
+        try { await idbSaveVideo(section, id, blob); } catch (e) {}
+        const url = URL.createObjectURL(blob);
+        _videoUrlCache[cacheKey] = url;
+        return url;
+      }
+    }
+  } catch (e) { console.warn('cloud download video failed:', e); }
+  return null;
+}
+function clearVideoUrlCache(section, id) {
+  const cacheKey = section + ':' + id;
+  if (_videoUrlCache[cacheKey]) {
+    URL.revokeObjectURL(_videoUrlCache[cacheKey]);
+    delete _videoUrlCache[cacheKey];
+  }
+}
 
 function _sbStorageReady() {
   return !!(sb && sb.storage);
@@ -6175,6 +6287,8 @@ const DEFAULTS = {
     { id: 'td33', text: 'Ven 11/09 — SORTIE PROJET R.I.C.H', cat: 'Événement', urgent: false, done: false, due: '2026-09-11' },
   ],
   inspirations: [],
+  clips: [],
+  capsules: [],
   streak: { last: null, days: 0 },
   todoFilter: 'all',
   todoSort: 'phase',
@@ -7950,6 +8064,110 @@ function inspiCardHTML(raw) {
   `;
 }
 
+/* CLIPS + CAPSULES — shared render/upload/delete handlers. Both sections work
+   the same way: drop a video file → IDB-save → fire-and-forget SB upload →
+   masonry card with hover-autoplay video preview. */
+function renderVideoSection(section) {
+  const cfg = VIDEO_SECTIONS[section];
+  const grid = document.getElementById(cfg.gridId);
+  if (!grid) return;
+  const list = Array.isArray(state[cfg.stateKey]) ? state[cfg.stateKey] : [];
+  if (list.length === 0) {
+    grid.innerHTML = emptyState('inspirations', section === 'clips' ? 'Aucun clip pour l\'instant' : 'Aucune capsule pour l\'instant',
+      section === 'clips' ? 'Drop tes teasers, TikTok, snippets ici.' : 'Drop tes interviews, BTS, lives ici.',
+      'Ajouter un ' + cfg.label, `document.getElementById('${section === 'clips' ? 'clipUpload' : 'capsuleUpload'}').click()`);
+    return;
+  }
+  const sorted = list.slice().sort((a, b) => (b.addedAt || '').localeCompare(a.addedAt || ''));
+  grid.innerHTML = sorted.map(item => videoCardHTML(section, item)).join('');
+  hydrateVideoSection(section);
+}
+function renderClips() { renderVideoSection('clips'); }
+function renderCapsules() { renderVideoSection('capsules'); }
+
+function videoCardHTML(section, item) {
+  const title = escapeHtml(item.title || 'Sans titre');
+  const safeId = escapeHtml(item.id);
+  const dateLabel = item.addedAt ? new Date(item.addedAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' }) : '';
+  return `
+    <article class="inspi-card-v2" data-id="${safeId}" data-kind="${section}" data-media="video" tabindex="0" aria-label="${title}">
+      <div class="inspi-card-media">
+        <video data-hydrate-video="${section}:${safeId}" muted playsinline loop preload="metadata"
+               onmouseenter="this.play()" onmouseleave="this.pause()"></video>
+        <div class="inspi-card-video-badge">${icon('play', 12)}</div>
+      </div>
+      <div class="inspi-card-foot">
+        <div class="inspi-card-title">${title}</div>
+        <div class="inspi-card-meta">
+          <span class="inspi-card-badge">${dateLabel}</span>
+          <button class="btn btn-sm" onclick="event.stopPropagation(); deleteVideo('${section}', '${safeId}')" aria-label="Supprimer" style="margin-left:auto;">×</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+async function hydrateVideoSection(section) {
+  const els = document.querySelectorAll(`[data-hydrate-video^="${section}:"]`);
+  for (const el of els) {
+    const ref = el.getAttribute('data-hydrate-video');
+    const id = ref.split(':').slice(1).join(':');
+    const url = await getVideoUrl(section, id);
+    if (url) el.src = url;
+  }
+}
+
+async function handleVideoUpload(section, ev) {
+  const files = checkFilesSize(ev.target.files);
+  if (!files.length) { ev.target.value = ''; return; }
+  const cfg = VIDEO_SECTIONS[section];
+  if (!Array.isArray(state[cfg.stateKey])) state[cfg.stateKey] = [];
+  for (const f of files) {
+    try {
+      const id = section.slice(0,2) + Date.now() + Math.random().toString(36).slice(2,6);
+      await idbSaveVideo(section, id, f);
+      const item = {
+        id,
+        title: f.name.replace(/\.[^.]+$/, ''),
+        addedAt: new Date().toISOString(),
+        mimeType: f.type || '',
+        size: f.size,
+        idb: true,
+        sbPath: null,
+      };
+      state[cfg.stateKey].push(item);
+      // Fire-and-forget cloud upload — local IDB save already protects the file
+      const ext = ((f.type || '').split('/')[1] || 'bin').replace(/[^a-z0-9]/gi, '');
+      const sbPath = id + '.' + ext;
+      sbUploadFile(cfg.bucket, sbPath, f).then(res => {
+        if (res.ok) { item.sbPath = sbPath; save(); }
+      });
+    } catch (e) {
+      toast('Erreur sur ' + f.name);
+      console.warn('handleVideoUpload:', e);
+    }
+  }
+  save();
+  renderVideoSection(section);
+  toast(`${files.length} ${cfg.label}(s) ajouté(s).`);
+  ev.target.value = '';
+}
+
+function deleteVideo(section, id) {
+  if (!confirm('Supprimer ?')) return;
+  const cfg = VIDEO_SECTIONS[section];
+  const list = state[cfg.stateKey] || [];
+  const idx = list.findIndex(x => x.id === id);
+  if (idx === -1) return;
+  const removed = list[idx];
+  list.splice(idx, 1);
+  save();
+  renderVideoSection(section);
+  clearVideoUrlCache(section, id);
+  idbDeleteVideo(section, id).catch(() => {});
+  if (removed && removed.sbPath) sbDeleteFile(cfg.bucket, removed.sbPath).catch(() => {});
+}
+
 async function handleInspiUpload(ev) {
   const files = checkFilesSize(ev.target.files);
   if (!files.length) { ev.target.value = ''; return; }
@@ -9337,6 +9555,8 @@ function renderView(view) {
   if (view === 'catalogue') renderCatalogue();
   if (view === 'calendrier') renderCalendar();
   if (view === 'inspirations') renderInspirations();
+  if (view === 'clips') renderClips();
+  if (view === 'capsules') renderCapsules();
   if (view === 'assets') renderAssets();
   if (view === 'equipe') renderTeam();
   if (view === 'budget') renderBudget();
@@ -9353,6 +9573,8 @@ function renderAll() {
     ['Catalogue', renderCatalogue],
     ['Calendar', renderCalendar],
     ['Inspirations', renderInspirations],
+    ['Clips', renderClips],
+    ['Capsules', renderCapsules],
     ['Assets', renderAssets],
     ['Team', renderTeam],
     ['Budget', renderBudget],
