@@ -5,45 +5,46 @@ Sortie prévue : **vendredi 11 septembre 2026**.
 
 Développée par [Noname Agency](https://noname.agency) (Genève) — direction Chouaib Serir.
 
-**Live** : [deggzyteam.netlify.app](https://deggzyteam.netlify.app)
-**Mirror GitHub Pages** : [shweppsss.github.io/AppArtiste](https://shweppsss.github.io/AppArtiste/)
+**Live** : [shweppsss.github.io/AppArtiste](https://shweppsss.github.io/AppArtiste/)
 
 ---
 
 ## Stack
 
-- **Frontend** : HTML / CSS / JavaScript vanilla — single-file `index.html` (~9000 lignes)
-- **Backend** : Supabase (PostgreSQL + Realtime + Auth)
-- **Hébergement** : Netlify
+- **Frontend** : HTML / CSS / JavaScript vanilla — single-file `index.html` (~9900 lignes)
+- **Backend** : Supabase Pro (PostgreSQL + Realtime + Auth + Storage)
+- **Hébergement** : GitHub Pages (auto-deploy sur push `main`)
 - **PWA** : Service Worker `sw.js` + manifest pour installation iOS / Android (offline caching)
 
-Pas de build step, pas de framework, pas de node_modules. Le déploiement est aussi simple que glisser le contenu du dossier sur Netlify.
+Pas de build step, pas de framework, pas de node_modules. Chaque push sur `main` déclenche un déploiement automatique de GitHub Pages.
 
 ## Structure du dépôt
 
 ```
 .
 ├── index.html               # L'app complète — tout est dedans
-├── manifest.json            # PWA manifest
-├── sw.js                    # Service Worker (cache offline + push handler)
-├── _headers                 # Cache policy Netlify
-├── netlify.toml             # Config auto-deploy
+├── manifest.json            # PWA manifest (paths relatifs)
+├── sw.js                    # Service Worker (offline cache)
 ├── icon-*.png               # Icônes PWA (à générer via realfavicongenerator.net)
 ├── og-image.png             # Image partage social
 ├── supabase/
-│   ├── 001-relational-schema.sql   # Schéma tables + triggers + RLS
-│   ├── 002-push-subscriptions.sql  # Table push_subscriptions + RLS
-│   └── functions/send-push/
-│       └── index.ts                # Edge Function — envoie les pushes
+│   ├── 001-relational-schema.sql        # Schéma tables relationnelles (dormant — l'app utilise workspace.state JSON)
+│   ├── 002-push-subscriptions.sql       # (legacy, table à drop via 005)
+│   ├── 003-storage-policies.sql         # RLS policies pour les 5 buckets storage
+│   ├── 004-profile-alias.sql            # Ajout colonne alias sur profiles
+│   ├── 004-workspace-table.sql          # Table workspace (state JSON)
+│   └── 005-drop-push-subscriptions.sql  # Drop push system (push retiré)
+├── scripts/
+│   └── setup-auto-sync.sh   # Hook git local pour auto-push
 ├── docs/
-│   └── RECAP.md             # Historique des phases + conventions du projet
+│   └── RECAP.md             # Historique des phases + conventions design
 ├── .gitignore
 └── README.md                # Ce fichier
 ```
 
 ## Démarrage local
 
-Pas d'install. Ouvre `index.html` dans le navigateur, ou sers le dossier via un serveur statique :
+Pas d'install. Sers le dossier via un serveur statique :
 
 ```bash
 # Option 1 — Python
@@ -67,29 +68,25 @@ L'app pointe vers un projet Supabase existant. Les credentials (`URL` + `anon ke
 Pour repartir de zéro avec un nouveau projet Supabase :
 
 1. Créer un projet sur [supabase.com](https://supabase.com).
-2. SQL Editor → exécuter `supabase/004-workspace-table.sql` (la table principale) + `supabase/003-storage-policies.sql` (RLS sur les 5 buckets : audio, covers, inspirations, clips, capsules).
-3. Storage → créer les 5 buckets (`audio`, `covers`, `inspirations`, `clips`, `capsules`) en mode **privé**.
-4. Authentication → Providers → Email → activer "Confirm email" pour la prod.
-5. Authentication → URL Configuration → restreindre Redirect URLs aux domaines de déploiement.
-6. Récupérer URL projet + anon key (Settings → API) → remplacer dans `index.html`.
+2. **Storage** → créer les 5 buckets (`audio`, `covers`, `inspirations`, `clips`, `capsules`) en mode **privé**.
+3. **SQL Editor** → exécuter dans l'ordre :
+   - `supabase/004-workspace-table.sql` (table principale)
+   - `supabase/004-profile-alias.sql` (alias support)
+   - `supabase/005-drop-push-subscriptions.sql` (clean push legacy)
+4. **Storage → bucket → Policies** (UI, pas SQL — le SQL Editor n'a pas les droits owner) → créer une policy par bucket : "For full customization" → toutes les ops (SELECT/INSERT/UPDATE/DELETE) → role `authenticated` → expression `bucket_id = '<nom>'`.
+5. **Authentication → Sign In / Up → Email** → activer "Confirm email" pour la prod.
+6. **Authentication → URL Configuration** → restreindre Redirect URLs au domaine GitHub Pages (`https://<user>.github.io/AppArtiste/**`).
+7. **Settings → API** → récupérer URL projet + anon key → remplacer `SUPABASE_DEFAULTS` dans `index.html`.
 
-## Déploiement Netlify
+## Déploiement GitHub Pages
 
-Deux options possibles.
+Configuré dans **Settings → Pages → Source : Deploy from a branch → main → / (root)**. Build type = `legacy` (pas de workflow).
 
-### Option 1 — Drag & drop (simple)
+Chaque push sur `main` déclenche un build automatique en ~60s. État visible dans **Actions → pages-build-deployment**.
 
-1. Zip le dossier (sans `.git/`).
-2. Aller sur [app.netlify.com/drop](https://app.netlify.com/drop).
-3. Glisser le dossier → c'est en ligne en 30 secondes.
+### Service Worker cache
 
-### Option 2 — Auto-deploy depuis GitHub (recommandé pour le travail à plusieurs)
-
-1. Sur Netlify → "Add new site" → "Import an existing project" → connecter le repo GitHub.
-2. Build settings : **Build command** = (vide), **Publish directory** = `.` (la racine du repo).
-3. Chaque push sur `main` déclenche un re-deploy automatique. Les PR génèrent des deploy previews.
-
-Le fichier `netlify.toml` à la racine du repo encode déjà cette config.
+À chaque release, bumper `CACHE_VERSION` dans `sw.js` (format `noname-YYYYMMDD-N`) pour invalider l'ancien cache offline.
 
 ## Workflow collaboratif
 
@@ -103,18 +100,18 @@ git add .
 git commit -m "Description claire en français OK"
 git push -u origin feature/nom-clair
 # Puis créer une Pull Request sur GitHub
-# Reviewer relit → merge → Netlify redéploie main
+# Reviewer relit → merge → GitHub Pages redéploie main
 ```
 
 Conseils pratiques :
 
-- **Test local avant push** : ouvre `index.html` dans le navigateur, vérifie que tu n'as rien cassé.
+- **Test local avant push** : sers `index.html` via serveur local (pas `file://`), vérifie que tu n'as rien cassé.
 - **Commit petits et fréquents** : un commit = une intention claire. Plus facile à reviewer et à revert.
 - **Ne pas commit de secrets** : la `anon key` Supabase est OK (publique par design), mais jamais coller la `service_role key` dans le repo.
 
 ## Historique des phases
 
-Voir `docs/RECAP.md` pour l'historique détaillé des 8+ phases de développement, les conventions design (tokens, typographie, motion), et la carte des fonctions JS principales avec leurs numéros de lignes.
+Voir `docs/RECAP.md` pour l'historique détaillé des phases de développement, les conventions design (tokens, typographie, motion), et la carte des fonctions JS principales avec leurs numéros de lignes.
 
 ## Roadmap (ouverte)
 
@@ -126,6 +123,3 @@ Voir `docs/RECAP.md` pour l'historique détaillé des 8+ phases de développemen
 ## Licence
 
 Propriétaire — © Noname Agency. Tous droits réservés. Code privé non destiné à redistribution.
-# (auto-pull test marker)
-# (auto-pull test 2 - 16:46:14)
-# (test 3 - 16:49:56)
