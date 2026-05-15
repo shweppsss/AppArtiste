@@ -1134,6 +1134,166 @@
   .cal-week-event[data-type="milestone"] { border-color: var(--danger); }
   .cal-week-event[data-type="other"] { border-color: var(--text-soft); }
   .cal-week-event.cal-event-dragging { opacity: 0.35; pointer-events: none; }
+
+  /* PRIVATE EVENTS — visual differentiation.
+     Soft opacity reduction + lock icon. Stays cohérent with the glass DA. */
+  .cal-event[data-visibility="private"],
+  .cal-week-event[data-visibility="private"] {
+    background: repeating-linear-gradient(
+      135deg,
+      var(--surface) 0,
+      var(--surface) 6px,
+      rgba(255,255,255,0.02) 6px,
+      rgba(255,255,255,0.02) 12px
+    );
+    opacity: 0.86;
+  }
+  .cal-event[data-visibility="private"]::before,
+  .cal-week-event[data-visibility="private"]::before {
+    content: '🔒';
+    position: absolute;
+    top: 3px; right: 4px;
+    font-size: 9px;
+    line-height: 1;
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .cal-event[data-visibility="private"] { position: relative; }
+  .cal-week-event[data-visibility="private"] { position: absolute; /* already positioned */ }
+
+  /* VISIBILITY TOGGLE — segmented control in event modal */
+  .visibility-toggle {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .visibility-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: transparent;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--text-soft);
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+    transition: border-color var(--duration-fast) var(--ease-standard),
+                background var(--duration-fast) var(--ease-standard),
+                color var(--duration-fast) var(--ease-standard);
+  }
+  .visibility-option:hover { border-color: var(--border-strong); color: var(--text); }
+  .visibility-option.active {
+    border-color: var(--accent);
+    background: rgba(var(--accent-rgb), 0.08);
+    color: var(--text);
+  }
+  .visibility-option.active[data-visibility="private"] {
+    border-color: rgba(255, 255, 255, 0.24);
+    background: rgba(255, 255, 255, 0.03);
+  }
+  .visibility-icon {
+    font-size: 13px;
+    width: 24px;
+    flex-shrink: 0;
+    text-align: center;
+    opacity: 0.85;
+  }
+  .visibility-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.3;
+    min-width: 0;
+  }
+  .visibility-text strong {
+    font-size: 13px;
+    color: inherit;
+    font-weight: 600;
+  }
+  .visibility-text span {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+  @media (max-width: 520px) {
+    .visibility-toggle { grid-template-columns: 1fr; }
+  }
+
+  /* PRIORITY HIERARCHY — todo cards & detail pane.
+     Maps state.todos[].priority ('critique' | 'urgent' | 'important' | 'normal')
+     onto a clear visual scale: stronger border + ambient glow as priority climbs. */
+  .priority-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    border-radius: 100px;
+    font: var(--font-micro);
+    letter-spacing: var(--tracking-micro);
+    text-transform: uppercase;
+    font-weight: 700;
+    border: 1px solid currentColor;
+    background: transparent;
+  }
+  .priority-pill[data-priority="critique"]  { color: var(--danger);  background: rgba(255,69,58,0.10); }
+  .priority-pill[data-priority="urgent"]    { color: var(--warning); background: rgba(255,184,77,0.12); }
+  .priority-pill[data-priority="important"] { color: var(--accent);  background: rgba(var(--accent-rgb),0.10); }
+  .priority-pill[data-priority="normal"]    { color: var(--text-dim); border-color: var(--border-strong); background: transparent; }
+
+  /* Todo row left-border indicator — uses .list-row data-priority attribute
+     because that's how todos render in the À faire list. */
+  .list-row[data-priority="critique"] {
+    border-left: 2px solid var(--danger);
+    box-shadow: inset 3px 0 14px -6px rgba(255,69,58,0.55);
+  }
+  .list-row[data-priority="urgent"] {
+    border-left: 2px solid var(--warning);
+  }
+  .list-row[data-priority="important"] {
+    border-left: 2px solid var(--accent);
+  }
+
+  /* ROLE GRID — modal de sélection du rôle métier */
+  .role-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .role-option {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 14px 16px;
+    background: transparent;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    color: var(--text);
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+    transition: border-color var(--duration-fast) var(--ease-standard),
+                background var(--duration-fast) var(--ease-standard),
+                transform var(--duration-fast) var(--ease-standard);
+  }
+  .role-option:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+  .role-option.active {
+    border-color: var(--accent);
+    background: rgba(var(--accent-rgb), 0.08);
+  }
+  .role-option-label {
+    font: var(--font-body-l);
+    letter-spacing: var(--tracking-body-l);
+    font-weight: 600;
+  }
+  .role-option-sub {
+    font: var(--font-caption);
+    color: var(--text-soft);
+    line-height: 1.35;
+  }
+  @media (max-width: 520px) {
+    .role-grid { grid-template-columns: 1fr; }
+  }
   .cal-week-event.cal-event-resizing { box-shadow: 0 4px 12px -2px rgba(0,0,0,0.5); z-index: 3; }
   .cal-week-event-resize {
     position: absolute;
@@ -4787,6 +4947,10 @@
         <span id="userChipName">—</span>
       </div>
       <div id="accountMenu" class="account-menu" hidden>
+        <button type="button" class="account-menu-item" onclick="openRoleModal()">
+          Modifier mon rôle
+          <span class="account-menu-sub" id="accountMenuRoleSub">Adapte ton dashboard à ton métier</span>
+        </button>
         <button type="button" class="account-menu-item" onclick="disablePinOnThisDevice()">
           Désactiver le PIN sur cet appareil
           <span class="account-menu-sub">Tu restes connecté, le code 4 chiffres est retiré</span>
@@ -5148,6 +5312,21 @@
   </div>
 </div>
 
+<!-- ============================ ROLE MODAL — édition du rôle métier ============================ -->
+<div class="modal-bg" id="roleModal">
+  <div class="modal">
+    <div class="modal-title">Mon rôle</div>
+    <div class="modal-sub">Détermine la façon dont le dashboard et le calendrier sont contextualisés pour toi. Tu peux le changer à tout moment.</div>
+    <div class="modal-body">
+      <div id="roleModalGrid" class="role-grid"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeRoleModal()">Annuler</button>
+      <button class="btn btn-primary" onclick="saveRole()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
 <!-- ============================ EVENT MODAL ============================ -->
 <div class="modal-bg" id="eventModal">
   <div class="modal">
@@ -5220,6 +5399,28 @@
       <div class="field">
         <label>Avec (personnes, optionnel)</label>
         <input id="eventWith" placeholder="Degzzy, journaliste X, label Y..." />
+      </div>
+      <div class="field">
+        <label>Visibilité</label>
+        <div class="visibility-toggle" role="radiogroup" aria-label="Visibilité de l'événement">
+          <button type="button" class="visibility-option active" data-visibility="team"
+                  onclick="_setEventVisibility('team')" role="radio" aria-checked="true">
+            <span class="visibility-icon" aria-hidden="true">●●</span>
+            <span class="visibility-text">
+              <strong>Équipe</strong>
+              <span>Visible par toute la team</span>
+            </span>
+          </button>
+          <button type="button" class="visibility-option" data-visibility="private"
+                  onclick="_setEventVisibility('private')" role="radio" aria-checked="false">
+            <span class="visibility-icon" aria-hidden="true">🔒</span>
+            <span class="visibility-text">
+              <strong>Privé</strong>
+              <span>Visible uniquement par moi</span>
+            </span>
+          </button>
+        </div>
+        <input type="hidden" id="eventVisibility" value="team" />
       </div>
       <div class="field">
         <label>Notes (optionnel)</label>
@@ -7376,7 +7577,10 @@ function renderDashboard() {
 
   const today = new Date();
   const daysToProject = Math.max(0, Math.ceil((PROJECT_DATE - today) / (1000*60*60*24)));
-  const events = Array.isArray(state.events) ? state.events : [];
+  // Apply visibility filter once at the top of the dashboard so every downstream
+  // section (upcoming, today, release card, stats) sees the same, role-respecting
+  // event set. Private events from other users are stripped here.
+  const events = filterVisibleEvents(Array.isArray(state.events) ? state.events : []);
   const upcoming = events
     .filter(e => e && isFutureOrToday(e.date, new Date(today)))
     .sort((a,b) => parseDate(a.date) - parseDate(b.date));
@@ -7694,6 +7898,76 @@ function typeLabel(t) {
   return map[t] || t;
 }
 const EVENT_TYPES = ['release','tiktok','instagram','shoot','studio','meeting','interview','call','podcast','listening','milestone','other'];
+
+/* ============================
+   ROLES — single source of truth for team-member roles.
+   Each role has:
+     - key       : canonical id, stable across data + UI
+     - label     : displayed in selectors and badges
+     - aliases   : free-text variants accepted from legacy/signup data
+     - relevantEventTypes : event types this role cares about (used in Phase 2 widgets)
+     - relevantCategories: todo categories this role typically owns
+   New roles can be added here without touching consumer code.
+   ============================ */
+const ROLES = [
+  { key: 'artiste',           label: 'Artiste',           aliases: ['artiste'],
+    relevantEventTypes: ['release','shoot','studio','interview','podcast','listening','milestone'],
+    relevantCategories: ['Rollout','Élévation','Événement'] },
+  { key: 'manager',           label: 'Direction / Manager', aliases: ['direction','manager','admin'],
+    relevantEventTypes: ['release','meeting','call','milestone','interview'],
+    relevantCategories: ['Pre-Launch','Rollout','Pivot','Élévation','Événement','Autre'] },
+  { key: 'ingenieur-son',     label: 'Ingé son',          aliases: ['ingé son','inge son','ingenieur son','ingénieur son','sound engineer'],
+    relevantEventTypes: ['release','studio','milestone'],
+    relevantCategories: ['Pre-Launch','Rollout','Élévation'] },
+  { key: 'producteur',        label: 'Producteur',        aliases: ['producteur','producer','beatmaker'],
+    relevantEventTypes: ['release','studio','listening','milestone'],
+    relevantCategories: ['Pre-Launch','Rollout','Élévation'] },
+  { key: 'realisateur',       label: 'Réalisateur',       aliases: ['réalisateur','realisateur','director','clipmaker'],
+    relevantEventTypes: ['shoot','release','milestone'],
+    relevantCategories: ['Pre-Launch','Rollout','Élévation'] },
+  { key: 'monteur',           label: 'Monteur',           aliases: ['monteur','editor','video editor'],
+    relevantEventTypes: ['shoot','release','milestone'],
+    relevantCategories: ['Rollout','Élévation'] },
+  { key: 'graphiste',         label: 'Graphiste / DA',    aliases: ['da','graphiste','designer','art director'],
+    relevantEventTypes: ['release','shoot','milestone'],
+    relevantCategories: ['Pre-Launch','Rollout','Élévation'] },
+  { key: 'community-manager', label: 'Community Manager', aliases: ['community manager','cm','social','community-manager','community'],
+    relevantEventTypes: ['release','tiktok','instagram','milestone'],
+    relevantCategories: ['Rollout','Pivot','Élévation','Événement'] },
+  { key: 'autre',             label: 'Autre',             aliases: ['autre','other',''],
+    relevantEventTypes: EVENT_TYPES,
+    relevantCategories: ['Pre-Launch','Rollout','Pivot','Élévation','Événement','Autre'] },
+];
+const ROLE_BY_KEY = Object.fromEntries(ROLES.map(r => [r.key, r]));
+
+// Normalize any free-text role (legacy "Direction", "Ingé son", "DA", etc.) to a canonical key.
+// Returns 'autre' if no match — never null, so call sites don't have to guard.
+function normalizeRoleKey(raw) {
+  if (!raw) return 'autre';
+  const s = String(raw).trim().toLowerCase();
+  if (!s) return 'autre';
+  // Exact key match wins (e.g. UI selector storing the key directly)
+  if (ROLE_BY_KEY[s]) return s;
+  // Alias scan
+  for (const r of ROLES) {
+    if (r.aliases.some(a => a === s)) return r.key;
+  }
+  // Loose contains-match for things like "ingé son senior", "DA - cover"
+  for (const r of ROLES) {
+    if (r.aliases.some(a => a && s.includes(a))) return r.key;
+  }
+  return 'autre';
+}
+
+// Resolve the current user's canonical role key. Falls back to 'autre' when
+// no profile is loaded yet — keeps render code unconditional.
+function getCurrentRoleKey() {
+  const raw = (_currentProfile && _currentProfile.role) || (state.user && state.user.role) || '';
+  return normalizeRoleKey(raw);
+}
+function getCurrentRole() {
+  return ROLE_BY_KEY[getCurrentRoleKey()] || ROLE_BY_KEY['autre'];
+}
 function formatEventTime(time) {
   if (!time) return '';
   return time.slice(0, 5);
@@ -8301,8 +8575,9 @@ function renderWeekView() {
     for (let h = START_HOUR; h < END_HOUR; h++) {
       html += `<div class="cal-week-hour-slot" data-date="${iso}" data-hour="${h}"></div>`;
     }
-    // Events whose date matches this day
-    const evs = state.events.filter(e => e.date === iso);
+    // Events whose date matches this day, filtered by visibility (private events
+    // owned by other users are hidden).
+    const evs = filterVisibleEvents(state.events).filter(e => e.date === iso);
     for (const e of evs) {
       let mins = _timeToMins(e.time);
       let allDay = false;
@@ -8319,7 +8594,7 @@ function renderWeekView() {
       const avatar = e.createdBy ? _eventActorAvatarHTML(e.createdBy) : '';
       // Resize handle hidden for all-day pills (no duration semantic).
       const resizeHandle = allDay ? '' : '<div class="cal-week-event-resize" data-resize-handle="1"></div>';
-      html += `<div class="cal-week-event" data-type="${escapeHtml(e.type)}" data-event-id="${escapeHtml(e.id)}"
+      html += `<div class="cal-week-event" data-type="${escapeHtml(e.type)}" data-visibility="${e.visibility === 'private' ? 'private' : 'team'}" data-event-id="${escapeHtml(e.id)}"
                     style="top:${top + 2}px; height:${height}px;"${tip ? ` title="${escapeHtml(tip)}"` : ''}>
         ${avatar ? `<div class="cal-week-event-actor">${avatar}</div>` : ''}
         ${timeLabel ? `<div class="cal-week-event-time">${timeLabel}</div>` : ''}
@@ -8639,7 +8914,8 @@ function renderMonthView() {
     const date = new Date(year, month - 1, day);
     const iso = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
     const isToday = date.getTime() === today.getTime();
-    const events = state.events.filter(e => e.date === iso);
+    // Visibility filter: hide private events owned by other users from the month grid.
+    const events = filterVisibleEvents(state.events).filter(e => e.date === iso);
     html += `
       <div class="cal-cell ${isToday ? 'today' : ''}" data-date="${iso}">
         <div class="cal-day">${day}</div>
@@ -8649,7 +8925,7 @@ function renderMonthView() {
           // Show duration suffix only when it's not the default 1h — keeps month pills tight.
           const dur = parseInt(e.duration, 10);
           const durSuffix = (e.time && dur && dur !== 60) ? ` <span class="cal-event-dur">(${_formatDuration(dur)})</span>` : '';
-          return `<div class="cal-event" data-type="${escapeHtml(e.type)}" data-event-id="${escapeHtml(e.id)}"${tip ? ` title="${escapeHtml(tip)}"` : ''}>${avatar}${e.time ? `<strong>${formatEventTime(e.time)}</strong>${durSuffix} ` : ''}${escapeHtml(e.title)}</div>`;
+          return `<div class="cal-event" data-type="${escapeHtml(e.type)}" data-visibility="${e.visibility === 'private' ? 'private' : 'team'}" data-event-id="${escapeHtml(e.id)}"${tip ? ` title="${escapeHtml(tip)}"` : ''}>${avatar}${e.time ? `<strong>${formatEventTime(e.time)}</strong>${durSuffix} ` : ''}${escapeHtml(e.title)}</div>`;
         }).join('')}
       </div>
     `;
@@ -8841,6 +9117,7 @@ function openEventModal(date = null, eventId = null) {
     document.getElementById('eventLocation').value = e.location || '';
     document.getElementById('eventWith').value = e.with || '';
     document.getElementById('eventNotes').value = e.notes || '';
+    _setEventVisibility(e.visibility === 'private' ? 'private' : 'team');
   } else {
     editingEventId = null;
     document.getElementById('eventModalTitle').textContent = 'Nouvel événement';
@@ -8852,11 +9129,95 @@ function openEventModal(date = null, eventId = null) {
     document.getElementById('eventLocation').value = '';
     document.getElementById('eventWith').value = '';
     document.getElementById('eventNotes').value = '';
+    _setEventVisibility('team');
   }
+}
+
+// Sync the hidden input + active state on the segmented visibility toggle.
+// Called from the modal's <button> onclick handlers and from openEventModal.
+function _setEventVisibility(value) {
+  const v = value === 'private' ? 'private' : 'team';
+  const hidden = document.getElementById('eventVisibility');
+  if (hidden) hidden.value = v;
+  document.querySelectorAll('#eventModal .visibility-option').forEach(btn => {
+    const active = btn.dataset.visibility === v;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-checked', active ? 'true' : 'false');
+  });
 }
 
 function closeEventModal() {
   document.getElementById('eventModal').classList.remove('open');
+}
+
+/* ============================
+   ROLE MODAL — pick your role, persist to profile, propagate to dashboard.
+   Stored on _currentProfile.role (Supabase profiles table) AND mirrored into
+   state.user.role so the legacy header chip stays accurate without a re-fetch.
+   ============================ */
+const _ROLE_DESCRIPTIONS = {
+  'artiste':           'Tes sorties, sessions studio, interviews, podcasts.',
+  'manager':           'Vue globale équipe, blocages, releases à risque.',
+  'ingenieur-son':     'Mixs, masters, sessions studio, exports audio.',
+  'producteur':        'Beats, sessions, exports, listening, milestones.',
+  'realisateur':       'Clips, shoots, montages, validations vidéo.',
+  'monteur':           'Montages, exports vidéo, livraisons clips.',
+  'graphiste':         'Covers, assets, exports branding, livraisons.',
+  'community-manager': 'Posts, campagnes, TikTok / Insta, timing promo.',
+  'autre':             'Vue par défaut. Tu pourras affiner plus tard.',
+};
+let _pendingRoleKey = null;
+function openRoleModal() {
+  if (typeof hideAccountMenu === 'function') hideAccountMenu();
+  const modal = document.getElementById('roleModal');
+  if (!modal) return;
+  const grid = document.getElementById('roleModalGrid');
+  const currentKey = getCurrentRoleKey();
+  _pendingRoleKey = currentKey;
+  grid.innerHTML = ROLES.map(r => `
+    <button type="button" class="role-option ${r.key === currentKey ? 'active' : ''}"
+            data-role-key="${escapeHtml(r.key)}"
+            onclick="_selectRole('${escapeHtml(r.key)}')">
+      <span class="role-option-label">${escapeHtml(r.label)}</span>
+      <span class="role-option-sub">${escapeHtml(_ROLE_DESCRIPTIONS[r.key] || '')}</span>
+    </button>
+  `).join('');
+  modal.classList.add('open');
+}
+function _selectRole(key) {
+  _pendingRoleKey = key;
+  document.querySelectorAll('#roleModalGrid .role-option').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.roleKey === key);
+  });
+}
+function closeRoleModal() {
+  document.getElementById('roleModal').classList.remove('open');
+  _pendingRoleKey = null;
+}
+async function saveRole() {
+  const key = _pendingRoleKey || 'autre';
+  const role = ROLE_BY_KEY[key];
+  if (!role) { closeRoleModal(); return; }
+  // Persist to local + Supabase profile so it sticks across sessions and devices.
+  if (_currentProfile) _currentProfile.role = role.label;
+  if (state.user) state.user.role = role.label;
+  closeRoleModal();
+  try {
+    if (sb && _currentUser && _currentUser.id) {
+      await sb.from('profiles').update({ role: role.label }).eq('id', _currentUser.id);
+    }
+  } catch (e) { console.warn('saveRole supabase update failed:', e); }
+  save();
+  // Refresh whatever's visible so the new role takes effect immediately.
+  if (typeof renderDashboard === 'function') renderDashboard();
+  if (typeof renderCalendar === 'function') renderCalendar();
+  if (typeof renderTodos === 'function') renderTodos();
+  // User chip in header includes the role label
+  if (state.user) {
+    const chipName = document.getElementById('userChipName');
+    if (chipName) chipName.textContent = state.user.name + ' · ' + state.user.role;
+  }
+  toast('Rôle mis à jour : ' + role.label);
 }
 
 /* EVENT ATTRIBUTION
@@ -8882,6 +9243,20 @@ function _stampEventCreate(ev) {
   ev.updatedBy = actor;
   ev.updatedAt = now;
   return ev;
+}
+// Visibility filter — drops private events that don't belong to the current viewer.
+// Events without a visibility field are treated as 'team' (backwards compat with all
+// events created before Phase 1 shipped). Used by every place that renders an event
+// list (dashboard upcoming, week/month calendar, etc.).
+function filterVisibleEvents(events) {
+  if (!Array.isArray(events)) return [];
+  const me = (_currentActor && _currentActor()) || { id: null };
+  return events.filter(e => {
+    if (!e) return false;
+    if (e.visibility !== 'private') return true;
+    // Private: visible only to its creator
+    return e.createdBy && e.createdBy.id && me.id && e.createdBy.id === me.id;
+  });
 }
 function _stampEventUpdate(ev) {
   if (!ev) return ev;
@@ -8958,13 +9333,18 @@ function saveEvent() {
   const location = document.getElementById('eventLocation').value.trim();
   const withWho = document.getElementById('eventWith').value.trim();
   const notes = document.getElementById('eventNotes').value.trim();
+  // Visibility: 'team' (visible to everyone) | 'private' (visible only to creator).
+  // Defaults to 'team' for backwards compat — old events without the field keep their
+  // current behavior (visible to all).
+  const visibilityRaw = (document.getElementById('eventVisibility') || {}).value;
+  const visibility = visibilityRaw === 'private' ? 'private' : 'team';
   if (!title || !date) { toast('Titre et date requis.'); return; }
   if (editingEventId) {
     const e = state.events.find(x => x.id === editingEventId);
-    Object.assign(e, { title, date, time, duration, type, location, with: withWho, notes });
+    Object.assign(e, { title, date, time, duration, type, location, with: withWho, notes, visibility });
     _stampEventUpdate(e);
   } else {
-    const ev = { id: 'e' + Date.now(), title, date, time, duration, type, location, with: withWho, notes };
+    const ev = { id: 'e' + Date.now(), title, date, time, duration, type, location, with: withWho, notes, visibility };
     _stampEventCreate(ev);
     state.events.push(ev);
   }
@@ -9329,12 +9709,20 @@ function todoItemHTML(t) {
   } else if (t.due) {
     dueLabel = formatDate(t.due);
   }
+  const priority = todoPriority(t);
   const subBits = [];
   if (t.cat) subBits.push(escapeHtml(t.cat));
   if (dueLabel) subBits.push(dueLabel);
   const modifiers = [t.done ? 'is-done' : '', t.urgent ? 'is-urgent' : ''].filter(Boolean).join(' ');
+  // Trail badge — show only when priority is critique or urgent. "Important" is
+  // already signalled by the left-border + colour; cluttering each row's trail
+  // with a badge for every priority would hurt scannability.
+  const trailBadge =
+    !t.done && priority === 'critique' ? '<span class="list-row-badge is-critical" aria-label="Critique" title="Critique">⛔</span>' :
+    !t.done && priority === 'urgent'   ? `<span class="list-row-badge is-urgent" aria-label="Urgent">${icon('bolt', 11)}</span>` :
+    '';
   return `
-    <button type="button" class="list-row ${modifiers}" data-id="${t.id}" data-kind="todo" data-action="open" aria-label="${escapeHtml(t.text)}">
+    <button type="button" class="list-row ${modifiers}" data-id="${t.id}" data-kind="todo" data-action="open" data-priority="${priority}" aria-label="${escapeHtml(t.text)}">
       <span class="list-row-lead" data-action="toggle-todo" role="checkbox" aria-checked="${t.done ? 'true' : 'false'}" aria-label="Marquer comme ${t.done ? 'à faire' : 'fait'}">
         <span class="list-row-check">${t.done ? icon('check', 14) : ''}</span>
       </span>
@@ -9343,7 +9731,7 @@ function todoItemHTML(t) {
         <span class="list-row-sub ${dueClass}">${subBits.join('<span class="sep">·</span>')}</span>
       </span>
       <span class="list-row-trail">
-        ${t.urgent && !t.done ? `<span class="list-row-badge is-urgent" aria-label="Urgent">${icon('bolt', 11)}</span>` : ''}
+        ${trailBadge}
         <span class="list-row-chev" aria-hidden="true">${icon('chevron', 14)}</span>
       </span>
     </button>
@@ -9398,7 +9786,7 @@ function addTodo() {
   const text = prompt('Nouvelle tâche :');
   if (!text || !text.trim()) return;
   const cat = prompt('Catégorie (Pre-Launch / Rollout / Pivot / Élévation / Événement / Autre) :', 'Autre') || 'Autre';
-  state.todos.unshift({ id: 'td' + Date.now(), text: text.trim(), cat, urgent: false, done: false, due: '' });
+  state.todos.unshift({ id: 'td' + Date.now(), text: text.trim(), cat, urgent: false, done: false, due: '', priority: 'normal' });
   save();
   renderTodos();
   renderDashboard();
@@ -10669,6 +11057,12 @@ function detailEventHTML(e) {
       <div class="detail-field"><label>Lieu / Lien (Zoom, studio, hôtel...)</label><input value="${escapeHtml(e.location || '')}" onchange="updateEventField('${e.id}','location',this.value)" placeholder="Studio Noname, Zoom, etc." /></div>
       <div class="detail-field"><label>Avec (personnes)</label><input value="${escapeHtml(e.with || '')}" onchange="updateEventField('${e.id}','with',this.value)" placeholder="Degzzy, journaliste X, label Y..." /></div>
       <div class="detail-field"><label>Notes / Brief</label><textarea onblur="updateEventField('${e.id}','notes',this.value)" placeholder="Détails, ordre du jour, à préparer...">${escapeHtml(e.notes || '')}</textarea></div>
+      <div class="detail-field"><label>Visibilité</label>
+        <select onchange="updateEventField('${e.id}','visibility',this.value)">
+          <option value="team" ${(e.visibility !== 'private') ? 'selected' : ''}>Équipe — visible par toute la team</option>
+          <option value="private" ${(e.visibility === 'private') ? 'selected' : ''}>Privé — visible uniquement par moi</option>
+        </select>
+      </div>
     </div>
 
     ${relatedTrack ? `
@@ -10938,19 +11332,75 @@ function addEventForTrack(trackId) {
   }, 380);
 }
 
+/* ============================
+   TODO PRIORITY — 4 levels: critique > urgent > important > normal.
+   Source of truth is state.todos[].priority. Legacy todos have only
+   `urgent: true|false` — todoPriority() handles the mapping at read time,
+   so unmigrated todos render correctly. ensureTodoPriorityMigration() does
+   the one-time data migration on next save.
+   ============================ */
+const PRIORITY_KEYS = ['critique', 'urgent', 'important', 'normal'];
+const PRIORITY_LABELS = {
+  critique:  '⛔ Critique',
+  urgent:    '⚡ Urgent',
+  important: '◇ Important',
+  normal:    'Normal',
+};
+function todoPriority(t) {
+  if (!t) return 'normal';
+  if (PRIORITY_KEYS.includes(t.priority)) return t.priority;
+  // Legacy mapping: urgent:true → 'urgent', otherwise 'normal'.
+  return t.urgent === true ? 'urgent' : 'normal';
+}
+function updateTodoPriority(id, value) {
+  const t = state.todos.find(x => x.id === id);
+  if (!t) return;
+  const p = PRIORITY_KEYS.includes(value) ? value : 'normal';
+  t.priority = p;
+  // Keep the legacy `urgent` flag in sync so any code that still reads
+  // it (filters, badges) keeps working.
+  t.urgent = (p === 'critique' || p === 'urgent');
+  save();
+  if (typeof renderTodos === 'function') renderTodos();
+  if (typeof renderDashboard === 'function') renderDashboard();
+  if (typeof haptic === 'function') haptic(10);
+}
+// One-time data migration: assign explicit priority to legacy todos that
+// only have the urgent flag. Idempotent: skips todos that already have one.
+function ensureTodoPriorityMigration() {
+  if (!Array.isArray(state.todos) || !state.todos.length) return;
+  let migrated = 0;
+  for (const t of state.todos) {
+    if (!t || PRIORITY_KEYS.includes(t.priority)) continue;
+    t.priority = t.urgent === true ? 'urgent' : 'normal';
+    migrated++;
+  }
+  if (migrated > 0) {
+    console.log('[Migration] Assigned default priority to ' + migrated + ' legacy todos');
+    save();
+  }
+}
+
 function detailTodoHTML(t) {
+  const priority = todoPriority(t);
+  const priorityLabel = PRIORITY_LABELS[priority] || priority;
   return `
     <div class="detail-hero">
-      <div class="detail-eyebrow">${t.cat} · ${t.urgent ? '⚡ Urgent' : 'Normal'}${t.done ? ' · ✓ Terminée' : ''}</div>
+      <div class="detail-eyebrow">${t.cat} · <span class="priority-pill" data-priority="${priority}">${escapeHtml(priorityLabel)}</span>${t.done ? ' · ✓ Terminée' : ''}</div>
       <div class="detail-title" contenteditable="true" onblur="updateTodoField('${t.id}','text',this.innerText)">${escapeHtml(t.text)}</div>
     </div>
 
     <div class="detail-section">
       <h3>Paramètres</h3>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+      <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px;">
         <div class="detail-field"><label>Catégorie</label>
           <select onchange="updateTodoField('${t.id}','cat',this.value)">
             ${TODO_CATEGORIES.map(c => `<option ${t.cat===c?'selected':''}>${c}</option>`).join('')}
+          </select>
+        </div>
+        <div class="detail-field"><label>Priorité</label>
+          <select onchange="updateTodoPriority('${t.id}',this.value)">
+            ${PRIORITY_KEYS.map(p => `<option value="${p}" ${priority===p?'selected':''}>${escapeHtml(PRIORITY_LABELS[p])}</option>`).join('')}
           </select>
         </div>
         <div class="detail-field"><label>Échéance</label><input type="date" value="${t.due || ''}" onchange="updateTodoField('${t.id}','due',this.value)" /></div>
@@ -10959,7 +11409,6 @@ function detailTodoHTML(t) {
     </div>
 
     <div class="detail-actions">
-      <button class="btn" onclick="toggleUrgent('${t.id}'); openDetail('todo','${t.id}');">${t.urgent ? 'Retirer urgent' : '⚡ Marquer urgent'}</button>
       <button class="btn ${t.done ? '' : 'btn-primary'}" onclick="toggleTodo('${t.id}'); closeDetail();">${t.done ? 'Marquer non faite' : '✓ Marquer faite'}</button>
       <button class="btn btn-danger" onclick="deleteTodo('${t.id}'); closeDetail();">Supprimer</button>
     </div>
@@ -11177,6 +11626,8 @@ setTimeout(() => { migrateCoversToIDB().catch(e => console.warn('Cover migration
 setTimeout(() => { migrateInspirationsToCloudIDB().catch(e => console.warn('Inspiration migration error:', e)); }, 1800);
 // Audio migration — legacy base64 audios are the heaviest single offender (6-50 MB per track)
 setTimeout(() => { migrateAudiosToIDB().catch(e => console.warn('Audio migration error:', e)); }, 2100);
+// Todo priority migration — cheap, runs early so dashboard renders with correct priorities.
+setTimeout(() => { try { ensureTodoPriorityMigration(); } catch (e) { console.warn('Priority migration error:', e); } }, 1300);
 
 // User chip
 function refreshUserChip() {
