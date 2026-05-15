@@ -986,6 +986,31 @@
     letter-spacing: -0.01em;
     text-transform: capitalize;
   }
+  .cal-view-toggle {
+    display: inline-flex;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 2px;
+  }
+  .cal-view-tab {
+    padding: 6px 14px;
+    border: none;
+    background: transparent;
+    color: var(--text-soft);
+    font: var(--font-body);
+    font-size: 12px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: var(--transition);
+  }
+  .cal-view-tab:hover { color: var(--text); }
+  .cal-view-tab.active {
+    background: var(--accent);
+    color: white;
+    font-weight: 600;
+  }
+
   .calendar-grid {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
@@ -994,6 +1019,136 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     overflow: hidden;
+  }
+  /* ============== WEEK VIEW — Apple-style hourly timeline ============== */
+  .cal-week {
+    --week-hour-h: 56px;
+    --week-gutter: 56px;
+    --week-start-h: 7;   /* first visible hour */
+    --week-end-h: 23;    /* exclusive end hour (so 23-7=16 rows shown) */
+    display: grid;
+    grid-template-columns: var(--week-gutter) repeat(7, 1fr);
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    position: relative;
+  }
+  .cal-week-head, .cal-week-gutter-head {
+    background: var(--surface);
+    padding: 10px 8px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+  }
+  .cal-week-head .cal-week-head-day {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+    margin-top: 2px;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .cal-week-head.today .cal-week-head-day { color: var(--accent); }
+  .cal-week-gutter {
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+  }
+  .cal-week-gutter-cell {
+    height: var(--week-hour-h);
+    padding: 4px 8px;
+    font-size: 10px;
+    color: var(--text-dim);
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+    box-sizing: border-box;
+  }
+  .cal-week-day {
+    position: relative;
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+    box-sizing: border-box;
+  }
+  .cal-week-day:last-child { border-right: none; }
+  .cal-week-day.today { background: var(--surface); }
+  .cal-week-hour-slot {
+    height: var(--week-hour-h);
+    border-bottom: 1px solid var(--border);
+    box-sizing: border-box;
+    transition: background-color var(--duration-fast) var(--ease-standard);
+    cursor: cell;
+  }
+  .cal-week-hour-slot:hover { background: rgba(10, 132, 255, 0.06); }
+  .cal-week-event {
+    position: absolute;
+    left: 2px; right: 2px;
+    background: var(--surface);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 11px;
+    line-height: 1.25;
+    color: var(--text);
+    overflow: hidden;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    z-index: 1;
+    transition: opacity var(--duration-fast) var(--ease-standard),
+                box-shadow var(--duration-fast) var(--ease-standard);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+  .cal-week-event:hover {
+    z-index: 2;
+    box-shadow: 0 4px 12px -2px rgba(0,0,0,0.5);
+  }
+  .cal-week-event:active { cursor: grabbing; }
+  .cal-week-event-time {
+    font-size: 9.5px;
+    color: var(--text-soft);
+    font-weight: 600;
+    margin-bottom: 1px;
+  }
+  .cal-week-event-title {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .cal-week-event[data-type="release"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .cal-week-event[data-type="tiktok"] { border-color: #7AB5C9; }
+  .cal-week-event[data-type="instagram"] { border-color: #C97AB5; }
+  .cal-week-event[data-type="shoot"] { border-color: var(--success); }
+  .cal-week-event[data-type="studio"] { border-color: #5AC9A6; }
+  .cal-week-event[data-type="meeting"] { border-color: #A77AC9; }
+  .cal-week-event[data-type="interview"] { border-color: #E0A858; }
+  .cal-week-event[data-type="call"] { border-color: #4FB8C9; }
+  .cal-week-event[data-type="podcast"] { border-color: #C9A858; }
+  .cal-week-event[data-type="listening"] { border-color: #E07AAF; }
+  .cal-week-event[data-type="milestone"] { border-color: var(--danger); }
+  .cal-week-event[data-type="other"] { border-color: var(--text-soft); }
+  .cal-week-event.cal-event-dragging { opacity: 0.35; pointer-events: none; }
+  .cal-week-now-line {
+    position: absolute;
+    left: 0; right: 0;
+    height: 2px;
+    background: var(--danger);
+    z-index: 3;
+    pointer-events: none;
+  }
+  .cal-week-now-line::before {
+    content: '';
+    position: absolute;
+    left: -5px; top: -4px;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--danger);
   }
   .cal-head {
     background: var(--surface);
@@ -4489,9 +4644,13 @@
         <button class="btn btn-primary" onclick="openEventModal()">+ Ajouter événement</button>
       </div>
       <div class="calendar-controls">
-        <button class="btn btn-sm" onclick="changeMonth(-1)">← Mois précédent</button>
+        <button class="btn btn-sm" onclick="changeCalRange(-1)">←</button>
         <div class="calendar-month" id="calMonth"></div>
-        <button class="btn btn-sm" onclick="changeMonth(1)">Mois suivant →</button>
+        <button class="btn btn-sm" onclick="changeCalRange(1)">→</button>
+        <div class="cal-view-toggle" role="group" aria-label="Type d'affichage" style="margin-left:auto;">
+          <button type="button" class="cal-view-tab" id="calViewMonth" onclick="setCalView('month')">Mois</button>
+          <button type="button" class="cal-view-tab" id="calViewWeek" onclick="setCalView('week')">Semaine</button>
+        </div>
       </div>
       <div class="calendar-grid" id="calendarGrid"></div>
       <div class="legend">
@@ -6665,6 +6824,9 @@ const DEFAULTS = {
     { label: 'Sounds TikTok créés (UGC)', value: '0', target: 'Objectif : ≥ 50 sons utilisés' },
   ],
   calMonth: (() => { const _d = new Date(); return _d.getFullYear() + '-' + String(_d.getMonth() + 1).padStart(2, '0'); })(),
+  calView: 'month', // 'month' | 'week'
+  calWeekStart: '', // ISO date string of the Monday of the visible week; lazily set
+
 };
 
 let state = loadState();
@@ -7589,7 +7751,314 @@ function swipeDeleteMember(id) {
 /* ============================
    CALENDAR
    ============================ */
+/* CALENDAR — dispatcher. Two views available:
+   • month: classic month grid (the original implementation below)
+   • week: Apple-style hourly timeline 7h-23h × 7 days, drag events anywhere */
 function renderCalendar() {
+  // Make sure the toggle reflects current state
+  const monthTab = document.getElementById('calViewMonth');
+  const weekTab = document.getElementById('calViewWeek');
+  if (monthTab && weekTab) {
+    monthTab.classList.toggle('active', state.calView !== 'week');
+    weekTab.classList.toggle('active', state.calView === 'week');
+  }
+  if (state.calView === 'week') return renderWeekView();
+  return renderMonthView();
+}
+
+function setCalView(view) {
+  if (view !== 'month' && view !== 'week') return;
+  state.calView = view;
+  if (view === 'week' && !state.calWeekStart) {
+    state.calWeekStart = _isoDate(_getMondayOf(new Date()));
+  }
+  save();
+  renderCalendar();
+}
+
+function changeCalRange(delta) {
+  if (state.calView === 'week') {
+    const monday = _parseIso(state.calWeekStart || _isoDate(_getMondayOf(new Date())));
+    monday.setDate(monday.getDate() + delta * 7);
+    state.calWeekStart = _isoDate(monday);
+  } else {
+    changeMonth(delta);
+    return;
+  }
+  save();
+  renderCalendar();
+}
+
+// Helpers — keep them tight, no external deps
+function _isoDate(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function _parseIso(s) {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+function _getMondayOf(d) {
+  const out = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dow = (out.getDay() + 6) % 7; // 0 = Monday
+  out.setDate(out.getDate() - dow);
+  return out;
+}
+// Convert "HH:MM" → minutes since midnight, "" or null → null
+function _timeToMins(t) {
+  if (!t || typeof t !== 'string') return null;
+  const [h, m] = t.split(':').map(Number);
+  if (isNaN(h)) return null;
+  return h * 60 + (isNaN(m) ? 0 : m);
+}
+function _minsToTime(mins) {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+}
+
+function renderWeekView() {
+  const grid = document.getElementById('calendarGrid');
+  if (!grid) return;
+  // Reset month-grid CSS (was display:grid 7 cols). Week view has its own .cal-week class.
+  grid.className = 'cal-week';
+  grid.style.gridTemplateColumns = ''; // let .cal-week CSS take over
+
+  const START_HOUR = 7;   // matches CSS --week-start-h
+  const END_HOUR = 23;    // exclusive
+  const HOUR_ROWS = END_HOUR - START_HOUR;
+  const HOUR_HEIGHT = 56; // px — matches CSS --week-hour-h
+
+  // Resolve current Monday
+  const monday = _parseIso(state.calWeekStart || _isoDate(_getMondayOf(new Date())));
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday); d.setDate(monday.getDate() + i);
+    days.push(d);
+  }
+  // Header label = "5 - 11 mai 2026" (locale-friendly span)
+  const headerEl = document.getElementById('calMonth');
+  if (headerEl) {
+    const first = days[0], last = days[6];
+    const sameMonth = first.getMonth() === last.getMonth();
+    const fmt = (d, withMonth) => withMonth
+      ? d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+      : d.getDate();
+    headerEl.textContent = sameMonth
+      ? fmt(first, false) + '–' + fmt(last, true)
+      : fmt(first, true) + ' – ' + fmt(last, true);
+  }
+
+  // Build HTML
+  const todayIso = _isoDate(new Date());
+  const dayNames = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+  let html = '<div class="cal-week-gutter-head"></div>';
+  for (let i = 0; i < 7; i++) {
+    const iso = _isoDate(days[i]);
+    html += `<div class="cal-week-head ${iso === todayIso ? 'today' : ''}">
+      ${dayNames[i]}
+      <div class="cal-week-head-day">${days[i].getDate()}</div>
+    </div>`;
+  }
+  // Gutter column with hour labels
+  html += '<div class="cal-week-gutter">';
+  for (let h = START_HOUR; h < END_HOUR; h++) {
+    html += `<div class="cal-week-gutter-cell">${String(h).padStart(2,'0')}:00</div>`;
+  }
+  html += '</div>';
+  // 7 day columns with hour slots + positioned events
+  for (let i = 0; i < 7; i++) {
+    const iso = _isoDate(days[i]);
+    const todayCls = iso === todayIso ? 'today' : '';
+    html += `<div class="cal-week-day ${todayCls}" data-date="${iso}">`;
+    for (let h = START_HOUR; h < END_HOUR; h++) {
+      html += `<div class="cal-week-hour-slot" data-date="${iso}" data-hour="${h}"></div>`;
+    }
+    // Events whose date matches this day
+    const evs = state.events.filter(e => e.date === iso);
+    for (const e of evs) {
+      let mins = _timeToMins(e.time);
+      let allDay = false;
+      if (mins === null) { mins = START_HOUR * 60; allDay = true; }
+      const minutesFromTop = Math.max(0, mins - START_HOUR * 60);
+      const top = (minutesFromTop / 60) * HOUR_HEIGHT;
+      const heightMins = 60; // default 1h slot (no duration field yet)
+      const height = (heightMins / 60) * HOUR_HEIGHT - 4;
+      const timeLabel = allDay ? 'Toute la journée' : (e.time ? formatEventTime(e.time) : '');
+      html += `<div class="cal-week-event" data-type="${escapeHtml(e.type)}" data-event-id="${escapeHtml(e.id)}"
+                    style="top:${top + 2}px; height:${height}px;">
+        ${timeLabel ? `<div class="cal-week-event-time">${timeLabel}</div>` : ''}
+        <div class="cal-week-event-title">${escapeHtml(e.title)}</div>
+      </div>`;
+    }
+    // Current-time red line (only on today)
+    if (iso === todayIso) {
+      const now = new Date();
+      const nowMins = now.getHours() * 60 + now.getMinutes();
+      if (nowMins >= START_HOUR * 60 && nowMins < END_HOUR * 60) {
+        const offset = ((nowMins - START_HOUR * 60) / 60) * HOUR_HEIGHT;
+        html += `<div class="cal-week-now-line" style="top:${offset}px;"></div>`;
+      }
+    }
+    html += '</div>';
+  }
+  grid.innerHTML = html;
+  attachWeekInteractions();
+}
+
+function attachWeekInteractions() {
+  const grid = document.getElementById('calendarGrid');
+  if (!grid) return;
+  // Empty hour slot click → create event at that date+hour
+  grid.querySelectorAll('.cal-week-hour-slot').forEach(slot => {
+    slot.addEventListener('click', (e) => {
+      if (_calDrag && _calDrag.started) return;
+      if (e.target.closest('.cal-week-event')) return;
+      const date = slot.dataset.date;
+      const hour = parseInt(slot.dataset.hour, 10);
+      openEventModal(date);
+      // Pre-fill the time field
+      setTimeout(() => {
+        const t = document.getElementById('eventTime');
+        if (t) t.value = String(hour).padStart(2, '0') + ':00';
+      }, 50);
+    });
+  });
+  // Event pills → drag to move (day + hour)
+  grid.querySelectorAll('.cal-week-event[data-event-id]').forEach(pill => {
+    pill.addEventListener('pointerdown', _onWeekEventPointerDown);
+  });
+}
+
+let _weekDrag = null;
+function _onWeekEventPointerDown(e) {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  const pill = e.currentTarget;
+  const id = pill.dataset.eventId;
+  if (!id) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const rect = pill.getBoundingClientRect();
+  try { pill.setPointerCapture(e.pointerId); } catch (err) {}
+  _weekDrag = {
+    id, pill,
+    pointerId: e.pointerId,
+    startX: e.clientX, startY: e.clientY,
+    offsetX: e.clientX - rect.left,
+    offsetY: e.clientY - rect.top,
+    width: rect.width,
+    height: rect.height,
+    ghost: null,
+    started: false,
+    targetDate: null,
+    targetMins: null,
+  };
+  pill.addEventListener('pointermove', _onWeekEventPointerMove);
+  pill.addEventListener('pointerup', _onWeekEventPointerUp);
+  pill.addEventListener('pointercancel', _onWeekEventPointerUp);
+  document.addEventListener('keydown', _onWeekDragKeydown);
+}
+
+function _onWeekEventPointerMove(e) {
+  if (!_weekDrag) return;
+  const dx = e.clientX - _weekDrag.startX;
+  const dy = e.clientY - _weekDrag.startY;
+  if (!_weekDrag.started) {
+    if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+    _weekDrag.started = true;
+    _weekDrag.pill.classList.add('cal-event-dragging');
+    const ghost = _weekDrag.pill.cloneNode(true);
+    ghost.classList.add('cal-event-ghost');
+    ghost.style.position = 'fixed';
+    ghost.style.pointerEvents = 'none';
+    ghost.style.zIndex = '9999';
+    ghost.style.width = _weekDrag.width + 'px';
+    ghost.style.height = _weekDrag.height + 'px';
+    ghost.style.left = (e.clientX - _weekDrag.offsetX) + 'px';
+    ghost.style.top = (e.clientY - _weekDrag.offsetY) + 'px';
+    document.body.appendChild(ghost);
+    _weekDrag.ghost = ghost;
+    if (typeof haptic === 'function') haptic(15);
+  }
+  if (_weekDrag.ghost) {
+    _weekDrag.ghost.style.left = (e.clientX - _weekDrag.offsetX) + 'px';
+    _weekDrag.ghost.style.top = (e.clientY - _weekDrag.offsetY) + 'px';
+  }
+  // Detect drop target: a .cal-week-day (column) and a y-offset within it → hour
+  if (_weekDrag.ghost) _weekDrag.ghost.style.display = 'none';
+  const elBelow = document.elementFromPoint(e.clientX, e.clientY);
+  if (_weekDrag.ghost) _weekDrag.ghost.style.display = '';
+  const dayCol = elBelow ? elBelow.closest('.cal-week-day[data-date]') : null;
+  if (!dayCol) { _weekDrag.targetDate = null; _weekDrag.targetMins = null; return; }
+  const colRect = dayCol.getBoundingClientRect();
+  // The event's "anchor" is the top of the ghost; compute relative to column top
+  const ghostTop = e.clientY - _weekDrag.offsetY;
+  const relY = Math.max(0, ghostTop - colRect.top);
+  const HOUR_HEIGHT = 56;
+  const START_HOUR = 7;
+  // Snap to 30 min
+  const rawMins = (relY / HOUR_HEIGHT) * 60 + START_HOUR * 60;
+  const snapped = Math.round(rawMins / 30) * 30;
+  const clamped = Math.max(START_HOUR * 60, Math.min(23 * 60 - 30, snapped));
+  _weekDrag.targetDate = dayCol.dataset.date;
+  _weekDrag.targetMins = clamped;
+}
+
+function _onWeekEventPointerUp(e) {
+  if (!_weekDrag) return;
+  const id = _weekDrag.id;
+  const wasDrag = _weekDrag.started;
+  const targetDate = _weekDrag.targetDate;
+  const targetMins = _weekDrag.targetMins;
+  _cleanupWeekDrag(e);
+
+  if (wasDrag) {
+    if (!targetDate || targetMins == null) return;
+    const ev = state.events.find(x => x.id === id);
+    if (!ev) return;
+    const newTime = _minsToTime(targetMins);
+    if (ev.date === targetDate && ev.time === newTime) return;
+    ev.date = targetDate;
+    ev.time = newTime;
+    save();
+    renderCalendar();
+    renderDashboard();
+    const dateLabel = _parseIso(targetDate).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+    toast('📅 Déplacé : ' + dateLabel + ' à ' + newTime);
+    if (typeof haptic === 'function') haptic(20);
+    return;
+  }
+  if (typeof openDetail === 'function') openDetail('event', id);
+}
+
+function _onWeekDragKeydown(e) {
+  if (e.key === 'Escape' && _weekDrag) {
+    e.preventDefault();
+    _weekDrag.started = false;
+    _weekDrag.targetDate = null;
+    _cleanupWeekDrag(null);
+  }
+}
+
+function _cleanupWeekDrag(e) {
+  if (!_weekDrag) return;
+  if (_weekDrag.ghost) { _weekDrag.ghost.remove(); _weekDrag.ghost = null; }
+  if (_weekDrag.pill) {
+    _weekDrag.pill.classList.remove('cal-event-dragging');
+    _weekDrag.pill.removeEventListener('pointermove', _onWeekEventPointerMove);
+    _weekDrag.pill.removeEventListener('pointerup', _onWeekEventPointerUp);
+    _weekDrag.pill.removeEventListener('pointercancel', _onWeekEventPointerUp);
+    if (e) { try { _weekDrag.pill.releasePointerCapture(e.pointerId); } catch (err) {} }
+  }
+  document.removeEventListener('keydown', _onWeekDragKeydown);
+  _weekDrag = null;
+}
+
+function renderMonthView() {
+  // Restore month-grid layout
+  const grid = document.getElementById('calendarGrid');
+  if (grid) {
+    grid.className = 'calendar-grid';
+  }
   const [year, month] = state.calMonth.split('-').map(Number);
   const first = new Date(year, month - 1, 1);
   const last = new Date(year, month, 0);
@@ -7599,7 +8068,6 @@ function renderCalendar() {
 
   document.getElementById('calMonth').textContent = first.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
 
-  const grid = document.getElementById('calendarGrid');
   const heads = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
   let html = heads.map(h => `<div class="cal-head">${h}</div>`).join('');
   const today = new Date(); today.setHours(0,0,0,0);
