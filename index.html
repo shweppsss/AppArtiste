@@ -1650,6 +1650,60 @@
     color: transparent !important;
   }
 
+  /* ============================
+     PRESENCE — small green dot on online users' avatars.
+     Lives as a ::after on the avatar element; positioned bottom-right.
+     Added/removed via .is-online (driven by Supabase Realtime presence sync).
+     ============================ */
+  .user-chip-avatar,
+  .dash-greeting-avatar,
+  .cal-event-avatar,
+  .cal-event-avatar-lg,
+  .profile-avatar {
+    position: relative;
+  }
+  .user-chip-avatar.is-online::after,
+  .dash-greeting-avatar.is-online::after,
+  .cal-event-avatar.is-online::after,
+  .cal-event-avatar-lg.is-online::after,
+  .profile-avatar.is-online::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    right: -1px;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+    border: 2px solid var(--bg);
+    box-shadow: 0 0 8px rgba(48,209,88,0.6);
+    z-index: 2;
+    pointer-events: none;
+    animation: presence-pulse 2.4s var(--ease-standard) infinite;
+  }
+  /* Profile avatar is huge — bump the dot up to remain visible */
+  .profile-avatar.is-online::after {
+    width: 16px; height: 16px;
+    bottom: 4px; right: 4px;
+    border-width: 3px;
+  }
+  /* Cal week-event avatar (large detail variant) — slight bump */
+  .cal-event-avatar-lg.is-online::after {
+    width: 10px; height: 10px;
+  }
+  @keyframes presence-pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50%      { transform: scale(0.9); opacity: 0.75; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .user-chip-avatar.is-online::after,
+    .dash-greeting-avatar.is-online::after,
+    .cal-event-avatar.is-online::after,
+    .cal-event-avatar-lg.is-online::after,
+    .profile-avatar.is-online::after {
+      animation: none;
+    }
+  }
+
   /* CHIPS (skills) — pill list with X-to-remove */
   .profile-chips {
     display: flex;
@@ -7871,6 +7925,127 @@ function subscribeToWorkspaceRealtime() {
     });
 }
 
+/* ============================
+   PRESENCE — Supabase Realtime presence channel (Phase 2B-1)
+   Each authenticated client joins channel 'presence:degzzy_main' and tracks
+   a small payload { user_id, name, role }. Other clients receive a 'sync'
+   event with the full presence map; we collapse it to a Set of userIds and
+   call applyPresenceDots() to repaint the UI.
+
+   Cost: one tiny channel with ~5 clients. No DB load. Heartbeat is implicit
+   in the Realtime protocol (the client lib sends keepalives every 30s).
+   ============================ */
+const _presence = {
+  channel: null,
+  online: new Set(),   // userIds currently present
+};
+function subscribeToPresenceRealtime() {
+  if (!sb || !_currentUser) return;
+  // Clean previous channel if any (reconnect path)
+  if (_presence.channel) {
+    try { sb.removeChannel(_presence.channel); } catch (e) {}
+    _presence.channel = null;
+  }
+  const me = _currentUser.id;
+  const myName = (_currentProfile && _currentProfile.name) || (_currentUser.email || '').split('@')[0] || 'Anonyme';
+  const myRole = (_currentProfile && _currentProfile.role) || 'Autre';
+
+  const channel = sb.channel('presence:degzzy_main', {
+    config: { presence: { key: me } },
+  });
+  channel
+    .on('presence', { event: 'sync' }, () => {
+      const state = channel.presenceState() || {};
+      _presence.online = new Set(Object.keys(state));
+      applyPresenceDots();
+    })
+    .on('presence', { event: 'join' }, () => {
+      // sync fires too — no need to handle join/leave separately for the dot UI.
+    })
+    .on('presence', { event: 'leave' }, () => { /* handled by sync */ })
+    .subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        try {
+          await channel.track({ user_id: me, name: myName, role: myRole, since: Date.now() });
+        } catch (e) { console.warn('[Presence] track failed:', e); }
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        // Backoff retry — keep the surface minimal, presence is non-critical.
+        setTimeout(() => subscribeToPresenceRealtime(), 5000);
+      }
+    });
+  _presence.channel = channel;
+}
+
+// Paint .is-online on every DOM node that represents one of the online users.
+// Selectors covered:
+//   - .user-chip-avatar (current viewer's chip — me is always online)
+//   - .cal-event-avatar[data-actor-id]
+//   - .dash-greeting-avatar (current viewer)
+//   - .profile-avatar.is-self (set in renderProfile via data-self)
+// The CSS adds the green dot via a ::after pseudo-element keyed on .is-online.
+function applyPresenceDots() {
+  const me = (_currentUser && _currentUser.id) || null;
+  // Sidebar chip / greeting / profile avatar represent the current viewer
+  document.querySelectorAll('#userChipAvatar, #dashGreetingAvatar, #profileAvatar').forEach(el => {
+    if (!el) return;
+    el.classList.toggle('is-online', !!me && _presence.online.has(me));
+  });
+  // Event-credit avatars carry the actor id
+  document.querySelectorAll('.cal-event-avatar[data-actor-id]').forEach(el => {
+    const id = el.dataset.actorId;
+    el.classList.toggle('is-online', !!id && _presence.online.has(id));
+  });
+}
+
+// Repaint dots after any major render — cheap (single DOM walk, no fetch).
+function _presenceAfterRender() {
+  if (_presence && _presence.online && _presence.online.size > 0) applyPresenceDots();
+}
+
+/* ============================
+   ACTIVITY LOG — real audit feed (Phase 2B-1)
+   Inserts a row into public.activity_log for each significant action by the
+   current user. Reads later from the table to power the "Activité récente"
+   section of Mon profil — instead of inferring activity from local state.
+
+   Failure modes are silent + non-blocking: if the table doesn't exist
+   (migration not applied) the catch swallows the error and the page keeps
+   working as before with the derived feed.
+   ============================ */
+const ACTIVITY_KINDS = {
+  'todo_done':       { icon: '✓', label: 'A terminé une tâche' },
+  'todo_created':    { icon: '+', label: 'A créé une tâche' },
+  'event_created':   { icon: '📅', label: 'A créé un événement' },
+  'event_updated':   { icon: '✎', label: 'A modifié un événement' },
+  'profile_updated': { icon: '◉', label: 'A mis à jour son profil' },
+};
+async function logActivity(entry) {
+  if (!sb || !_currentUser || !entry || !entry.kind) return;
+  try {
+    await sb.from('activity_log').insert({
+      user_id: _currentUser.id,
+      kind: entry.kind,
+      subject_id: entry.subject_id || null,
+      subject_title: (entry.subject_title || '').slice(0, 256),
+      metadata: entry.metadata || {},
+    });
+  } catch (e) { console.warn('[ActivityLog] insert failed:', e); }
+}
+// Fetch the latest N activity rows for the given user. Falls back to [] on
+// error so callers don't need to guard.
+async function fetchUserActivity(userId, limit) {
+  if (!sb || !userId) return [];
+  try {
+    const { data, error } = await sb.from('activity_log')
+      .select('id, kind, subject_id, subject_title, metadata, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(limit || 10);
+    if (error) throw error;
+    return data || [];
+  } catch (e) { console.warn('[ActivityLog] fetch failed:', e); return []; }
+}
+
 // Translate common Supabase auth errors to French. Falls back to the original
 // message if we don't have a translation — better than swallowing the detail.
 function mapAuthError(e) {
@@ -8574,6 +8749,7 @@ async function enterApp() {
     refreshUserChip();
     renderAll();
     subscribeToWorkspaceRealtime();
+    if (typeof subscribeToPresenceRealtime === 'function') subscribeToPresenceRealtime();
     const name = _currentProfile?.name || 'toi';
     toast(`Bienvenue, ${name}.`);
     haptic(20);
@@ -10887,10 +11063,18 @@ function saveEvent() {
     const e = state.events.find(x => x.id === editingEventId);
     Object.assign(e, { title, date, time, duration, type, location, with: withWho, notes, visibility });
     _stampEventUpdate(e);
+    // Audit log — fire-and-forget. Skipped for private events (audit feed
+    // is visible to the whole team; private events shouldn't leak via it).
+    if (visibility !== 'private' && typeof logActivity === 'function') {
+      logActivity({ kind: 'event_updated', subject_id: editingEventId, subject_title: title, metadata: { type, date } });
+    }
   } else {
     const ev = { id: 'e' + Date.now(), title, date, time, duration, type, location, with: withWho, notes, visibility };
     _stampEventCreate(ev);
     state.events.push(ev);
+    if (visibility !== 'private' && typeof logActivity === 'function') {
+      logActivity({ kind: 'event_created', subject_id: ev.id, subject_title: title, metadata: { type, date } });
+    }
   }
   save();
   closeEventModal();
@@ -11404,54 +11588,69 @@ function renderProfileStats(vm) {
   `).join('');
 }
 
-function renderProfileActivity(vm) {
-  const todos = Array.isArray(state.todos) ? state.todos : [];
-  const events = Array.isArray(state.events) ? state.events : [];
-  // Derive activity items: todos completed (by anyone — we don't track who closed
-  // each todo yet) + events created by me. Sorted desc by inferred timestamp.
-  const items = [];
-  // Recently completed todos — we use the id timestamp as a rough proxy when no
-  // closedAt is stored. Privacy-respect: if activityVisibility === 'private',
-  // we still show them since this is the user's own profile.
-  todos.filter(t => t.done).forEach(t => {
-    const id = t.id || '';
-    const tsMatch = id.match(/^td(\d+)/);
-    const ts = tsMatch ? parseInt(tsMatch[1], 10) : 0;
-    items.push({
-      kind: 'done',
-      title: t.text,
-      sub: t.cat || '',
-      ts,
-      onclick: "openDetail('todo','" + t.id + "')",
-    });
-  });
-  // Events created by me — use createdAt or fallback to id-derived ts
-  events.filter(e => e && e.createdBy && e.createdBy.id === vm.userId).forEach(e => {
-    const ts = e.createdAt ? Date.parse(e.createdAt) : 0;
-    items.push({
-      kind: 'event',
-      title: e.title,
-      sub: typeLabel(e.type) + (e.date ? ' · ' + formatDate(e.date) : ''),
-      ts: ts || 0,
-      onclick: "openDetail('event','" + e.id + "')",
-    });
-  });
-  items.sort((a, b) => b.ts - a.ts);
-  const top = items.slice(0, 5);
+// Map an audit-log row's `kind` to the openDetail() call that fits its subject.
+// Falls back to no-op for kinds without a clickable subject (profile_updated).
+function _activitySubjectOnclick(row) {
+  if (!row || !row.subject_id) return '';
+  const id = String(row.subject_id).replace(/'/g, "");
+  switch (row.kind) {
+    case 'todo_done':
+    case 'todo_created':
+      return "openDetail('todo','" + id + "')";
+    case 'event_created':
+    case 'event_updated':
+      return "openDetail('event','" + id + "')";
+    default:
+      return '';
+  }
+}
+
+async function renderProfileActivity(vm) {
   const meta = document.getElementById('profileActivityMeta');
-  if (meta) meta.textContent = items.length === 0 ? 'Rien encore' : (top.length + ' / ' + items.length + ' dernières');
   const container = document.getElementById('profileActivity');
   if (!container) return;
+  // 1) Try the real audit log (Phase 2B-1, requires SQL migration 008).
+  let rows = [];
+  if (vm && vm.userId) {
+    rows = await fetchUserActivity(vm.userId, 10).catch(() => []);
+  }
+  // 2) If the audit log returned nothing (migration not applied yet, or
+  //    a brand-new account with no activity tracked), fall back to the
+  //    local derivation so the section never looks broken on day one.
+  let items;
+  if (rows && rows.length) {
+    items = rows.map(r => {
+      const def = ACTIVITY_KINDS[r.kind] || { icon: '•', label: 'Activité' };
+      const ts = r.created_at ? Date.parse(r.created_at) : 0;
+      return {
+        kind: r.kind,
+        title: r.subject_title || def.label,
+        sub: def.label,
+        ts,
+        icon: def.icon,
+        onclick: _activitySubjectOnclick(r),
+      };
+    });
+  } else {
+    items = _deriveLocalActivityItems(vm);
+  }
+  const top = (items || []).slice(0, 5);
+  if (meta) {
+    meta.textContent = (!items || items.length === 0)
+      ? 'Rien encore'
+      : (top.length + ' / ' + items.length + ' dernières');
+  }
   if (top.length === 0) {
     container.innerHTML = '<div class="profile-activity-empty">Aucune activité récente. Tes prochaines actions apparaîtront ici.</div>';
     return;
   }
   container.innerHTML = top.map(it => {
-    const icon = it.kind === 'done' ? '✓' : '📅';
+    const icon = it.icon || (it.kind === 'todo_done' ? '✓' : it.kind && it.kind.startsWith('event') ? '📅' : '•');
     const when = it.ts ? _formatRelativeShort(new Date(it.ts).toISOString()) : '';
+    const clickAttr = it.onclick ? ` onclick="${it.onclick}" style="cursor:pointer;"` : '';
     return `
-      <div class="profile-activity-item" onclick="${it.onclick}">
-        <div class="profile-activity-icon" data-kind="${it.kind}">${icon}</div>
+      <div class="profile-activity-item"${clickAttr}>
+        <div class="profile-activity-icon" data-kind="${escapeHtml(it.kind || '')}">${icon}</div>
         <div class="profile-activity-body">
           <div class="profile-activity-title">${escapeHtml(it.title || '—')}</div>
           ${it.sub ? `<div class="profile-activity-sub">${escapeHtml(it.sub)}</div>` : ''}
@@ -11460,6 +11659,40 @@ function renderProfileActivity(vm) {
       </div>
     `;
   }).join('');
+}
+
+// Legacy/local fallback — keeps the section populated on a fresh account
+// before any audit row has been written. Reads from state.todos / state.events.
+function _deriveLocalActivityItems(vm) {
+  const todos = Array.isArray(state.todos) ? state.todos : [];
+  const events = Array.isArray(state.events) ? state.events : [];
+  const items = [];
+  todos.filter(t => t.done).forEach(t => {
+    const id = t.id || '';
+    const tsMatch = id.match(/^td(\d+)/);
+    const ts = tsMatch ? parseInt(tsMatch[1], 10) : 0;
+    items.push({
+      kind: 'todo_done',
+      title: t.text,
+      sub: t.cat || '',
+      ts,
+      icon: '✓',
+      onclick: "openDetail('todo','" + t.id + "')",
+    });
+  });
+  events.filter(e => e && e.createdBy && e.createdBy.id === vm.userId).forEach(e => {
+    const ts = e.createdAt ? Date.parse(e.createdAt) : 0;
+    items.push({
+      kind: 'event_created',
+      title: e.title,
+      sub: typeLabel(e.type) + (e.date ? ' · ' + formatDate(e.date) : ''),
+      ts: ts || 0,
+      icon: '📅',
+      onclick: "openDetail('event','" + e.id + "')",
+    });
+  });
+  items.sort((a, b) => b.ts - a.ts);
+  return items;
 }
 
 /* AVATAR — stored in the existing covers bucket under "avatar_{userId}.{ext}".
@@ -11547,6 +11780,8 @@ async function upgradeEventAvatars() {
       node.classList.add('has-image');
     }
   }
+  // Once new event avatars are in the DOM, repaint presence dots on them.
+  if (typeof applyPresenceDots === 'function') applyPresenceDots();
 }
 async function refreshProfileAvatar(vm) {
   if (!vm || !vm.userId) return;
@@ -11633,6 +11868,10 @@ async function handleAvatarUpload(ev) {
 /* Field updater — persists to Supabase profile, mirrors locally.
    Kept generic so adding "specialty", "phone", "bio", "activityVisibility"
    doesn't need new handlers. Maps camelCase JS keys to snake_case columns. */
+// Debounce key for profile-update audit entries — coalesces a flurry of
+// edits ("typed bio" → blur → "typed more bio" → blur) into ONE row per
+// 30s window. Activity feed stays clean.
+let _profileUpdateAuditTimer = null;
 async function updateProfileField(jsKey, value) {
   const v = (value == null) ? '' : String(value);
   if (!_currentProfile) return;
@@ -11652,6 +11891,13 @@ async function updateProfileField(jsKey, value) {
       await sb.from('profiles').update({ [col]: v }).eq('id', _currentUser.id);
     }
   } catch (e) { console.warn('updateProfileField ' + jsKey + ':', e); }
+  // Audit log — debounced so multiple blurs in a row coalesce.
+  if (typeof logActivity === 'function') {
+    if (_profileUpdateAuditTimer) clearTimeout(_profileUpdateAuditTimer);
+    _profileUpdateAuditTimer = setTimeout(() => {
+      logActivity({ kind: 'profile_updated', subject_id: 'self', subject_title: 'Profil mis à jour', metadata: { field: jsKey } });
+    }, 1500);
+  }
 }
 
 // Inline alias edit on the profile page — wired in setupProfileAliasEdit().
@@ -11867,6 +12113,11 @@ function toggleTodo(id) {
     } else {
       toast(getDopamineLine(remaining));
     }
+    // Audit log — only log the "done" transition, not the un-done.
+    if (typeof logActivity === 'function') {
+      const priority = (typeof todoPriority === 'function') ? todoPriority(t) : (t.urgent ? 'urgent' : 'normal');
+      logActivity({ kind: 'todo_done', subject_id: t.id, subject_title: t.text, metadata: { cat: t.cat, priority } });
+    }
   }
   save();
   renderTodos();
@@ -11900,7 +12151,11 @@ function addTodo() {
   const text = prompt('Nouvelle tâche :');
   if (!text || !text.trim()) return;
   const cat = prompt('Catégorie (Pre-Launch / Rollout / Pivot / Élévation / Événement / Autre) :', 'Autre') || 'Autre';
-  state.todos.unshift({ id: 'td' + Date.now(), text: text.trim(), cat, urgent: false, done: false, due: '', priority: 'normal' });
+  const todoId = 'td' + Date.now();
+  state.todos.unshift({ id: todoId, text: text.trim(), cat, urgent: false, done: false, due: '', priority: 'normal' });
+  if (typeof logActivity === 'function') {
+    logActivity({ kind: 'todo_created', subject_id: todoId, subject_title: text.trim(), metadata: { cat } });
+  }
   save();
   renderTodos();
   renderDashboard();
@@ -13764,6 +14019,8 @@ function refreshUserChip() {
   if (typeof applyAvatarToHeaderUI === 'function') {
     applyAvatarToHeaderUI().catch(() => {});
   }
+  // Paint presence dots on whatever avatar nodes just rendered.
+  if (typeof applyPresenceDots === 'function') applyPresenceDots();
 }
 refreshUserChip();
 
