@@ -10013,10 +10013,17 @@ async function _refreshPinFaceIdButton() {
   }
 }
 
-// Physical keyboard support — only while the PIN view is visible
+// Physical keyboard support — only while the PIN view is visible.
+// IMPORTANT: check offsetParent (which is null when ANY ancestor has
+// display:none) instead of the element's own inline style. hideAuthScreen()
+// hides the parent authScreen via style.display='none' on the WRAPPER —
+// pinView's own inline style stays at its last value ('flex'), so the
+// previous check `pinView.style.display === 'none'` never fired and this
+// listener was swallowing Backspace globally in the app. That's why users
+// couldn't erase text in profile fields after sign-in.
 document.addEventListener('keydown', (e) => {
   const pinView = document.getElementById('authPinEntryView');
-  if (!pinView || pinView.style.display === 'none') return;
+  if (!pinView || pinView.offsetParent === null) return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (/^[0-9]$/.test(e.key)) { e.preventDefault(); pinKeyPress(e.key); return; }
   if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); pinDelete(); return; }
