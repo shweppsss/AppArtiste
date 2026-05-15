@@ -9536,6 +9536,15 @@ async function setLocalPin(ev) {
     clearPinFailures();
     toast('Code PIN enregistré sur cet appareil.');
     haptic(20);
+    // Offer biometric unlock if the device supports it. Non-blocking — if the
+    // user dismisses the OS prompt or the API isn't available we proceed to
+    // enterApp() with the PIN alone.
+    if (typeof isWebAuthnAvailable === 'function' && await isWebAuthnAvailable()) {
+      if (confirm('Activer Face ID / Touch ID pour des connexions plus rapides sur cet appareil ?')) {
+        const ok = await enrollWebAuthn();
+        if (ok) toast('Face ID activé sur cet appareil.');
+      }
+    }
     enterApp();
   } catch (e) {
     console.error('hashPin failed:', e);
@@ -9660,35 +9669,155 @@ async function submitPinBuffer() {
   }, 360);
 }
 
-// Face ID button — gracefully degrades when WebAuthn / passkey unavailable
+/* ============================
+   WEBAUTHN — Face ID / Touch ID / Windows Hello unlock for the local PIN
+   gate. The OS keychain holds the actual key material; we keep only the
+   credential id (base64url) in localStorage so we can re-target it on
+   verify. No remote RP, no server-side signature check — this is purely
+   a device-convenience unlock that runs after Supabase auth has already
+   established the user. PIN remains the fallback.
+   ============================ */
+const WEBAUTHN_CRED_KEY_PREFIX = 'degzzy_webauthn_cred_';
+
+function _b64uEncode(buf) {
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function _b64uDecode(s) {
+  const pad = '='.repeat((4 - (s.length % 4)) % 4);
+  const std = (s + pad).replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(std);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function isWebAuthnAvailable() {
+  if (!window.PublicKeyCredential) return false;
+  try {
+    return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+  } catch (e) { return false; }
+}
+
+function _getStoredCredential(userId) {
+  if (!userId) return null;
+  try {
+    const raw = localStorage.getItem(WEBAUTHN_CRED_KEY_PREFIX + userId);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+
+async function enrollWebAuthn() {
+  if (!_currentUser) return false;
+  if (!await isWebAuthnAvailable()) return false;
+  try {
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const userIdBytes = new TextEncoder().encode(_currentUser.id);
+    const cred = await navigator.credentials.create({
+      publicKey: {
+        challenge,
+        rp: { name: 'Deggzy Team', id: location.hostname },
+        user: {
+          id: userIdBytes,
+          name: _currentUser.email || _currentUser.id,
+          displayName: (_currentProfile && _currentProfile.name) || _currentUser.email || 'Membre',
+        },
+        // ES256 + RS256 covers every modern platform authenticator (iOS, Android,
+        // Windows Hello, macOS Touch ID).
+        pubKeyCredParams: [
+          { type: 'public-key', alg: -7 },
+          { type: 'public-key', alg: -257 },
+        ],
+        authenticatorSelection: {
+          authenticatorAttachment: 'platform',
+          userVerification: 'required',
+          residentKey: 'preferred',
+        },
+        timeout: 60000,
+        attestation: 'none',
+      },
+    });
+    if (!cred) return false;
+    const stored = {
+      credentialId: _b64uEncode(cred.rawId),
+      registeredAt: new Date().toISOString(),
+    };
+    localStorage.setItem(WEBAUTHN_CRED_KEY_PREFIX + _currentUser.id, JSON.stringify(stored));
+    return true;
+  } catch (e) {
+    console.warn('[WebAuthn] enroll failed:', e);
+    return false;
+  }
+}
+
+async function verifyWebAuthn() {
+  if (!_currentUser) return false;
+  if (!await isWebAuthnAvailable()) return false;
+  const stored = _getStoredCredential(_currentUser.id);
+  if (!stored || !stored.credentialId) return false;
+  try {
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const credIdBytes = _b64uDecode(stored.credentialId);
+    const result = await navigator.credentials.get({
+      publicKey: {
+        challenge,
+        rpId: location.hostname,
+        allowCredentials: [{ type: 'public-key', id: credIdBytes }],
+        userVerification: 'required',
+        timeout: 60000,
+      },
+    });
+    return !!result;
+  } catch (e) {
+    console.warn('[WebAuthn] verify failed:', e);
+    return false;
+  }
+}
+
+function removeWebAuthn() {
+  if (!_currentUser) return;
+  try { localStorage.removeItem(WEBAUTHN_CRED_KEY_PREFIX + _currentUser.id); } catch (e) {}
+}
+
+// Face ID / Touch ID button on the PIN entry view. Verifies the stored
+// passkey via navigator.credentials.get(); on success skip the PIN keypad
+// and proceed straight to enterApp(). On failure leave the keypad usable.
 async function pinTryFaceId() {
   if (typeof haptic === 'function') haptic(20);
-  if (!window.PublicKeyCredential) {
-    if (typeof toast === 'function') toast('Face ID indisponible dans ce navigateur.');
-    return;
-  }
+  const btn = document.getElementById('pinFaceIdBtn');
+  if (btn) btn.disabled = true;
   try {
-    const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-    if (!available) {
-      if (typeof toast === 'function') toast('Biométrique indisponible sur cet appareil.');
+    const ok = await verifyWebAuthn();
+    if (!ok) {
+      if (typeof toast === 'function') toast('Échec biométrique. Utilise ton PIN.');
       return;
     }
-    // Passkey registration / verification with no backend isn't truly secure here —
-    // we surface a clear message so user falls back to PIN until proper passkey flow ships.
-    if (typeof toast === 'function') toast('Active Face ID dans les Réglages — bientôt disponible.');
-  } catch (e) {
-    if (typeof toast === 'function') toast('Face ID indisponible.');
+    clearPinFailures();
+    if (typeof haptic === 'function') haptic(25);
+    enterApp();
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
 async function _refreshPinFaceIdButton() {
-  // Face ID is intentionally hidden until WebAuthn passkey registration + verify
-  // is fully wired. The previous behavior showed the button whenever a platform
-  // authenticator existed, but tapping it only toasted "bientôt disponible" —
-  // confusing for users. Re-enable by detecting passkey credential presence,
-  // not just authenticator availability.
+  // Show the button only when (a) a platform authenticator is available AND
+  // (b) we already enrolled on this device for this user. Otherwise the only
+  // visible affordance is the PIN keypad.
   const btn = document.getElementById('pinFaceIdBtn');
-  if (btn) btn.hidden = true;
+  if (!btn) return;
+  const userId = _currentUser && _currentUser.id;
+  const stored = _getStoredCredential(userId);
+  if (!stored) { btn.hidden = true; return; }
+  const available = await isWebAuthnAvailable();
+  btn.hidden = !available;
+  // Auto-trigger when the view first opens — feels native on iOS.
+  if (available && !_pinBuffer) {
+    // Slight delay so the layout settles before the OS prompt slides in.
+    setTimeout(() => { if (!_pinBuffer) pinTryFaceId(); }, 300);
+  }
 }
 
 // Physical keyboard support — only while the PIN view is visible
@@ -9706,6 +9835,9 @@ function resetLocalPin() {
   if (!confirm('Réinitialiser ton code PIN ? Tu devras te reconnecter avec email/mot de passe.')) return;
   if (_currentUser) {
     localStorage.removeItem(LOCAL_PIN_KEY_PREFIX + _currentUser.id);
+    // Drop the WebAuthn passkey alongside the PIN so the next sign-in starts
+    // fresh — leaving an orphan credential would silently auto-unlock again.
+    if (typeof removeWebAuthn === 'function') removeWebAuthn();
   }
   signOutUser();
 }
