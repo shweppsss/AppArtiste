@@ -5451,19 +5451,9 @@ async function getTrackAudioUrl(trackId) {
       return _audioCache[trackId];
     }
   } catch (e) { console.warn('idbGetAudio failed:', e); }
-  // Fallback 1: PocketBase (current primary storage)
+  // Fallback: Supabase Storage (source of truth across devices)
   try {
     const track = (state.tracks || []).find(x => x.id === trackId);
-    if (track && track.pbAudioRecord && track.pbAudioFile) {
-      const blob = await pbDownloadBlob(track.pbAudioRecord, track.pbAudioFile);
-      if (blob) {
-        try { await idbSaveAudio('track_' + trackId, new File([blob], (track.audioMeta && track.audioMeta.name) || track.pbAudioFile, { type: blob.type })); } catch (e) {}
-        const url = URL.createObjectURL(blob);
-        _audioCache[trackId] = { url, name: (track.audioMeta && track.audioMeta.name) || track.pbAudioFile, type: blob.type, size: blob.size };
-        return _audioCache[trackId];
-      }
-    }
-    // Fallback 2: legacy Supabase Storage path
     if (track && track.sbAudioPath) {
       const blob = await sbDownloadBlob(SB_BUCKET_AUDIO, track.sbAudioPath);
       if (blob) {
@@ -5522,19 +5512,9 @@ async function getTrackCoverUrl(trackId) {
       return url;
     }
   } catch (e) { console.warn('idbGetCover failed:', e); }
-  // Fallback 1: PocketBase
+  // Fallback: Supabase Storage (source of truth across devices)
   try {
     const track = (state.tracks || []).find(x => x.id === trackId);
-    if (track && track.pbCoverRecord && track.pbCoverFile) {
-      const blob = await pbDownloadBlob(track.pbCoverRecord, track.pbCoverFile);
-      if (blob) {
-        try { await idbSaveCover(trackId, blob); } catch (e) {}
-        const url = URL.createObjectURL(blob);
-        _coverCache[trackId] = url;
-        return url;
-      }
-    }
-    // Fallback 2: legacy Supabase Storage
     if (track && track.sbCoverPath) {
       const blob = await sbDownloadBlob(SB_BUCKET_COVERS, track.sbCoverPath);
       if (blob) {
@@ -5704,6 +5684,12 @@ async function cleanRogueTrackFields() {
       delete t['undefined'];
       cleaned++;
     }
+    // Legacy PocketBase metadata — server removed, fields now dead. Reads
+    // fall back to sbAudioPath/sbCoverPath (Supabase Storage).
+    if (Object.prototype.hasOwnProperty.call(t, 'pbAudioRecord')) { delete t.pbAudioRecord; cleaned++; }
+    if (Object.prototype.hasOwnProperty.call(t, 'pbAudioFile'))   { delete t.pbAudioFile;   cleaned++; }
+    if (Object.prototype.hasOwnProperty.call(t, 'pbCoverRecord')) { delete t.pbCoverRecord; cleaned++; }
+    if (Object.prototype.hasOwnProperty.call(t, 'pbCoverFile'))   { delete t.pbCoverFile;   cleaned++; }
   }
   if (cleaned > 0) {
     console.log('[Migration] Cleaned ' + cleaned + ' tracks of rogue undefined field (~' + Math.round(recoveredBytes/1024) + ' KB freed)');
@@ -5746,66 +5732,7 @@ async function migrateAudiosToIDB() {
   }
 }
 
-/* ============================
-   POCKETBASE STORAGE — Self-hosted file server
-   Files go to a PocketBase instance exposed via Cloudflare Tunnel.
-   IndexedDB stays as the local cache for fast offline reads.
-   URL can be overridden at runtime via localStorage.setItem('pb_url', '...').
-   ============================ */
-// The PocketBase URL is INTENTIONALLY not committed to source.
-// Each user sets it in their browser via localStorage:
-//   localStorage.setItem('pb_url', 'https://your-tunnel.trycloudflare.com')
-// Keeping the URL private prevents drive-by scanning of the repo from
-// reaching the self-hosted server.
-const PB_COLLECTION = 'files';
-function getPocketBaseUrl() {
-  try {
-    const v = localStorage.getItem('pb_url');
-    if (v && /^https?:\/\//.test(v)) return v.replace(/\/$/, '');
-  } catch (e) {}
-  return '';
-}
-
-async function pbUploadFile(file) {
-  if (!file) return { ok: false, error: 'no-file' };
-  if (file.size > MAX_FILE_SIZE) return { ok: false, error: 'size-limit' };
-  const url = getPocketBaseUrl();
-  if (!url) return { ok: false, error: 'no-url' };
-  try {
-    const fd = new FormData();
-    fd.append('file', file);
-    const res = await fetch(url + '/api/collections/' + PB_COLLECTION + '/records', {
-      method: 'POST',
-      body: fd,
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error('HTTP ' + res.status + ' ' + body.slice(0, 200));
-    }
-    const data = await res.json();
-    return { ok: true, recordId: data.id, fileName: data.file };
-  } catch (e) {
-    console.warn('[pbUpload]', e);
-    return { ok: false, error: (e && e.message) || String(e) };
-  }
-}
-
-async function pbDownloadBlob(recordId, fileName) {
-  if (!recordId || !fileName) return null;
-  const url = getPocketBaseUrl();
-  if (!url) return null;
-  try {
-    const res = await fetch(url + '/api/files/' + PB_COLLECTION + '/' + recordId + '/' + encodeURIComponent(fileName));
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    return await res.blob();
-  } catch (e) {
-    console.warn('[pbDownload]', e);
-    return null;
-  }
-}
-
-/* Legacy Supabase Storage bucket names — kept so old uploads remain readable.
-   No new writes go here. */
+/* Supabase Storage bucket names — source of truth across devices. */
 const SB_BUCKET_AUDIO = 'audio';
 const SB_BUCKET_COVERS = 'covers';
 const SB_BUCKET_INSPI = 'inspirations';
