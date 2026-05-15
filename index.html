@@ -3412,6 +3412,318 @@
     border-color: var(--accent);
     font-weight: 600;
   }
+
+  /* ============================
+     ONBOARDING — multi-step signup form
+     Lives inside #authSignUpView.auth-onboarding. One .onboarding-step is
+     visible at a time; transitions handled by adding/removing .active.
+     Sized so it stays comfortable in the auth modal viewport on both
+     desktop and mobile.
+     ============================ */
+  .auth-onboarding {
+    gap: 0;
+    /* Override .auth-form's default flex gap so each step controls its own */
+  }
+
+  /* Progress dots */
+  .onboarding-progress {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    margin: 0 auto 24px;
+    width: 100%;
+    max-width: 320px;
+  }
+  .onboarding-progress-dot {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: rgba(10,10,10,0.5);
+    color: var(--text-soft);
+    font: 600 12px/1 "SF Pro Text", sans-serif;
+    flex-shrink: 0;
+    cursor: pointer;
+    transition: background var(--duration-fast) var(--ease-standard),
+                border-color var(--duration-fast) var(--ease-standard),
+                color var(--duration-fast) var(--ease-standard),
+                transform var(--duration-fast) var(--ease-standard);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+  .onboarding-progress-dot.complete {
+    background: rgba(var(--accent-rgb), 0.16);
+    border-color: rgba(var(--accent-rgb), 0.55);
+    color: var(--accent);
+  }
+  .onboarding-progress-dot.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #0a0a0a;
+    transform: scale(1.08);
+    box-shadow: 0 0 0 4px rgba(var(--accent-rgb), 0.18);
+  }
+  .onboarding-progress-line {
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+    margin: 0 6px;
+    position: relative;
+  }
+  .onboarding-progress-line.complete {
+    background: rgba(var(--accent-rgb), 0.45);
+  }
+
+  /* Steps */
+  .onboarding-step {
+    display: none;
+    flex-direction: column;
+    gap: 18px;
+    animation: onboarding-fade-in var(--duration-base) var(--ease-decelerate);
+  }
+  .onboarding-step.active { display: flex; }
+  @keyframes onboarding-fade-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .onboarding-head { text-align: center; }
+  .onboarding-eyebrow {
+    font: var(--font-micro);
+    letter-spacing: var(--tracking-micro);
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+    font-weight: 700;
+  }
+  .onboarding-title {
+    font: var(--font-display-l);
+    font-size: 22px;
+    letter-spacing: var(--tracking-display-l);
+    color: var(--text);
+    margin: 0 0 6px;
+  }
+  .onboarding-sub {
+    font: var(--font-body);
+    color: var(--text-soft);
+    margin: 0;
+    line-height: 1.4;
+  }
+
+  .onboarding-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  /* Side-by-side prénom + nom */
+  .auth-field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  @media (max-width: 480px) {
+    .auth-field-row { grid-template-columns: 1fr; }
+  }
+
+  .auth-field label {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    justify-content: flex-start;
+  }
+  .auth-field-optional {
+    font-size: 10.5px;
+    color: var(--text-dim);
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .auth-field textarea {
+    background: rgba(10,10,10,0.6);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    padding: 10px 12px;
+    font: var(--font-body);
+    letter-spacing: var(--tracking-body);
+    resize: vertical;
+    transition: border-color var(--duration-fast) var(--ease-standard),
+                background var(--duration-fast) var(--ease-standard);
+  }
+  .auth-field textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: rgba(10,10,10,0.85);
+  }
+
+  /* Role grid — onboarding variant. Same vibe as the role modal grid
+     but optimized for the narrow auth column. */
+  .onboarding-role-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .onboarding-role-option {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px 12px;
+    background: rgba(10,10,10,0.4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+    transition: border-color var(--duration-fast) var(--ease-standard),
+                background var(--duration-fast) var(--ease-standard);
+  }
+  .onboarding-role-option:hover {
+    border-color: rgba(var(--accent-rgb), 0.4);
+  }
+  .onboarding-role-option.active {
+    border-color: var(--accent);
+    background: rgba(var(--accent-rgb), 0.10);
+  }
+  .onboarding-role-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .onboarding-role-desc {
+    font-size: 11px;
+    color: var(--text-soft);
+    line-height: 1.3;
+  }
+  @media (max-width: 380px) {
+    .onboarding-role-grid { grid-template-columns: 1fr; }
+  }
+
+  /* Photo step */
+  .onboarding-photo-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    background: rgba(10,10,10,0.4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .onboarding-avatar {
+    position: relative;
+    width: 96px; height: 96px;
+    border-radius: 50%;
+    border: 1px solid var(--border-strong);
+    background: rgba(10,10,10,0.7);
+    background-size: cover;
+    background-position: center;
+    cursor: pointer;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text);
+    font: 700 36px/1 "SF Pro Display", sans-serif;
+    flex-shrink: 0;
+    transition: border-color var(--duration-fast) var(--ease-standard),
+                transform var(--duration-fast) var(--ease-standard);
+  }
+  .onboarding-avatar:hover {
+    border-color: var(--accent);
+    transform: scale(1.03);
+  }
+  .onboarding-avatar.has-image .onboarding-avatar-initial { display: none; }
+  .onboarding-avatar-edit {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 6px 0;
+    font: var(--font-micro);
+    letter-spacing: var(--tracking-micro);
+    text-transform: uppercase;
+    background: linear-gradient(0deg, rgba(0,0,0,0.7) 0%, transparent 100%);
+    color: var(--text);
+    opacity: 0;
+    transition: opacity var(--duration-fast) var(--ease-standard);
+  }
+  .onboarding-avatar:hover .onboarding-avatar-edit { opacity: 1; }
+  .onboarding-avatar.has-image .onboarding-avatar-edit { opacity: 0.85; }
+
+  .onboarding-photo-side {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    flex: 1;
+  }
+  .onboarding-photo-side strong {
+    font: var(--font-body);
+    font-weight: 600;
+    color: var(--text);
+  }
+  .onboarding-photo-side span {
+    font: var(--font-caption);
+    color: var(--text-soft);
+    line-height: 1.4;
+  }
+  .onboarding-photo-side .auth-link {
+    align-self: flex-start;
+    margin-top: 4px;
+    padding: 0;
+    font-size: 12px;
+  }
+
+  /* Recap card */
+  .onboarding-recap {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 16px;
+    background: rgba(10,10,10,0.4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  .onboarding-recap-row {
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    gap: 8px;
+    font: var(--font-caption);
+    line-height: 1.45;
+  }
+  .onboarding-recap-row dt {
+    color: var(--text-dim);
+    text-transform: uppercase;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    margin: 0;
+  }
+  .onboarding-recap-row dd {
+    color: var(--text);
+    margin: 0;
+    word-break: break-word;
+  }
+  .onboarding-recap-row dd.muted { color: var(--text-soft); font-style: italic; }
+
+  /* Nav */
+  .onboarding-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 6px;
+  }
+  .onboarding-nav .auth-submit {
+    width: auto;
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+  .onboarding-nav .auth-link {
+    margin: 0;
+    font-size: 13px;
+  }
   .auth-submit {
     margin-top: 6px;
     padding: 13px 20px;
@@ -5423,34 +5735,141 @@
       </div>
     </form>
 
-    <!-- Sign up (email + password + name + role) -->
-    <form id="authSignUpView" class="auth-form" onsubmit="signUpUser(event)" style="display:none;">
-      <div class="auth-field">
-        <label>Ton prénom</label>
-        <input id="signUpName" required placeholder="ex: Chouaib" autocomplete="given-name" />
+    <!-- Sign up — 4-step onboarding.
+         Step 1: identity (name + email + password + alias)
+         Step 2: role (ROLES registry grid)
+         Step 3: pro info (bio + specialty + skills + phone)
+         Step 4: photo + recap → submit
+         All steps but #1 are optional in their contents (#1 has the auth basics
+         Supabase needs). Onboarding state lives in window._onboardingState
+         which is rebuilt each time the user opens the signup form. -->
+    <form id="authSignUpView" class="auth-form auth-onboarding" onsubmit="signUpUser(event)" style="display:none;">
+      <div class="onboarding-progress" role="progressbar" aria-label="Étape de l'inscription">
+        <button type="button" class="onboarding-progress-dot active" data-step="1" aria-label="Étape 1 sur 4"><span>1</span></button>
+        <span class="onboarding-progress-line"></span>
+        <button type="button" class="onboarding-progress-dot" data-step="2" aria-label="Étape 2 sur 4"><span>2</span></button>
+        <span class="onboarding-progress-line"></span>
+        <button type="button" class="onboarding-progress-dot" data-step="3" aria-label="Étape 3 sur 4"><span>3</span></button>
+        <span class="onboarding-progress-line"></span>
+        <button type="button" class="onboarding-progress-dot" data-step="4" aria-label="Étape 4 sur 4"><span>4</span></button>
       </div>
-      <div class="auth-field">
-        <label>Email</label>
-        <input id="signUpEmail" type="email" required autocomplete="email" />
-      </div>
-      <div class="auth-field">
-        <label>Mot de passe (6 caractères min.)</label>
-        <input id="signUpPassword" type="password" required autocomplete="new-password" minlength="6" />
-      </div>
-      <div class="auth-field">
-        <label>Ton rôle</label>
-        <div class="auth-roles" id="signUpRoles">
-          <div class="auth-role" data-role="Direction">Direction</div>
-          <div class="auth-role" data-role="Artiste">Artiste</div>
-          <div class="auth-role" data-role="DA">DA</div>
-          <div class="auth-role" data-role="Réalisateur">Réalisateur</div>
-          <div class="auth-role" data-role="Ingé son">Ingé son</div>
-          <div class="auth-role" data-role="Producteur">Producteur</div>
-          <div class="auth-role" data-role="Monteur">Monteur</div>
-          <div class="auth-role" data-role="Autre">Autre</div>
+
+      <!-- STEP 1 — Identity -->
+      <div class="onboarding-step active" data-step="1">
+        <div class="onboarding-head">
+          <div class="onboarding-eyebrow">Étape 1 / 4</div>
+          <h2 class="onboarding-title">Crée ton compte</h2>
+          <p class="onboarding-sub">Les bases — tu peux affiner ton profil ensuite.</p>
+        </div>
+        <div class="onboarding-fields">
+          <div class="auth-field-row">
+            <div class="auth-field">
+              <label>Prénom</label>
+              <input id="signUpFirstName" required placeholder="ex: Chouaib" autocomplete="given-name" />
+            </div>
+            <div class="auth-field">
+              <label>Nom</label>
+              <input id="signUpLastName" placeholder="ex: Serir" autocomplete="family-name" />
+            </div>
+          </div>
+          <div class="auth-field">
+            <label>Alias / pseudo <span class="auth-field-optional">optionnel</span></label>
+            <input id="signUpAlias" placeholder="ex: shwepps" autocomplete="nickname" maxlength="32" />
+          </div>
+          <div class="auth-field">
+            <label>Email</label>
+            <input id="signUpEmail" type="email" required autocomplete="email" placeholder="toi@exemple.com" />
+          </div>
+          <div class="auth-field">
+            <label>Mot de passe <span class="auth-field-optional">6 caractères min.</span></label>
+            <input id="signUpPassword" type="password" required autocomplete="new-password" minlength="6" />
+          </div>
+        </div>
+        <div class="onboarding-nav">
+          <span></span>
+          <button type="button" class="auth-submit" onclick="onboardingNext()">Continuer →</button>
         </div>
       </div>
-      <button type="submit" class="auth-submit" id="signUpButton">Créer mon compte</button>
+
+      <!-- STEP 2 — Role -->
+      <div class="onboarding-step" data-step="2">
+        <div class="onboarding-head">
+          <div class="onboarding-eyebrow">Étape 2 / 4</div>
+          <h2 class="onboarding-title">Ton rôle dans l'équipe</h2>
+          <p class="onboarding-sub">Le dashboard, le calendrier et les priorités s'adapteront à ton métier.</p>
+        </div>
+        <div class="onboarding-role-grid" id="signUpRoleGrid" role="radiogroup" aria-label="Choisis ton rôle"></div>
+        <div class="onboarding-nav">
+          <button type="button" class="auth-link" onclick="onboardingBack()">← Retour</button>
+          <button type="button" class="auth-submit" onclick="onboardingNext()">Continuer →</button>
+        </div>
+      </div>
+
+      <!-- STEP 3 — Pro info -->
+      <div class="onboarding-step" data-step="3">
+        <div class="onboarding-head">
+          <div class="onboarding-eyebrow">Étape 3 / 4</div>
+          <h2 class="onboarding-title">Ton profil pro</h2>
+          <p class="onboarding-sub">Tout est optionnel — tu pourras compléter à tout moment depuis « Mon profil ».</p>
+        </div>
+        <div class="onboarding-fields">
+          <div class="auth-field">
+            <label>Bio courte <span class="auth-field-optional">optionnel</span></label>
+            <textarea id="signUpBio" rows="2" placeholder="Quelques mots sur toi, ton style, ce qui te définit…"></textarea>
+          </div>
+          <div class="auth-field">
+            <label>Spécialité <span class="auth-field-optional">optionnel</span></label>
+            <input id="signUpSpecialty" placeholder="ex: mix électronique, montage TikTok…" />
+          </div>
+          <div class="auth-field">
+            <label>Compétences <span class="auth-field-optional">optionnel</span></label>
+            <div class="profile-chips" id="signUpSkillsList"></div>
+            <div class="profile-chip-add">
+              <input id="signUpSkillInput" type="text" placeholder="ex: Ableton, écriture, after effects…"
+                     maxlength="40" autocomplete="off"
+                     onkeydown="if(event.key==='Enter'){event.preventDefault(); onboardingAddSkill();}" />
+              <button type="button" class="btn" onclick="onboardingAddSkill()">Ajouter</button>
+            </div>
+          </div>
+          <div class="auth-field">
+            <label>Téléphone <span class="auth-field-optional">optionnel</span></label>
+            <input id="signUpPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+33 …" />
+          </div>
+        </div>
+        <div class="onboarding-nav">
+          <button type="button" class="auth-link" onclick="onboardingBack()">← Retour</button>
+          <button type="button" class="auth-submit" onclick="onboardingNext()">Continuer →</button>
+        </div>
+      </div>
+
+      <!-- STEP 4 — Photo + recap -->
+      <div class="onboarding-step" data-step="4">
+        <div class="onboarding-head">
+          <div class="onboarding-eyebrow">Étape 4 / 4</div>
+          <h2 class="onboarding-title">Photo et confirmation</h2>
+          <p class="onboarding-sub">Une dernière étape et tu rejoins l'équipe.</p>
+        </div>
+        <div class="onboarding-photo-row">
+          <button type="button" class="onboarding-avatar" id="signUpAvatarBtn"
+                  onclick="document.getElementById('signUpAvatarInput').click()"
+                  aria-label="Choisir une photo de profil">
+            <span class="onboarding-avatar-initial" id="signUpAvatarInitial">?</span>
+            <span class="onboarding-avatar-edit">Choisir</span>
+          </button>
+          <input type="file" id="signUpAvatarInput" accept="image/*" hidden onchange="onboardingHandleAvatar(event)" />
+          <div class="onboarding-photo-side">
+            <strong>Photo de profil</strong>
+            <span>Visible par toute la team. Tu peux la changer après dans Mon profil.</span>
+            <button type="button" class="auth-link" id="signUpAvatarSkip" onclick="onboardingClearAvatar()" hidden>Retirer</button>
+          </div>
+        </div>
+        <div class="onboarding-recap" id="signUpRecap"></div>
+        <div class="onboarding-nav">
+          <button type="button" class="auth-link" onclick="onboardingBack()">← Retour</button>
+          <button type="submit" class="auth-submit" id="signUpButton">Rejoindre l'équipe</button>
+        </div>
+      </div>
+
       <div class="auth-toggle-row">
         <button type="button" class="auth-link" onclick="showSignIn()">← J'ai déjà un compte</button>
       </div>
@@ -7508,14 +7927,260 @@ async function signInUser(ev) {
   }
 }
 
+/* ============================
+   ONBOARDING — 4-step signup state machine.
+   _onboardingState mirrors what's typed/clicked on each step. Step 1 fields
+   are bound to the actual <input> elements (Supabase needs them); steps 2-4
+   hold transient state (role key, skills array, avatar blob) that the
+   final submit reads. resetOnboardingState() is called when the signup form
+   is opened — so an aborted flow doesn't leak state into a fresh attempt.
+   ============================ */
+let _onboardingStep = 1;
+let _onboardingState = null;
+function resetOnboardingState() {
+  // Revoke any leftover preview blob URL from a previous aborted flow
+  if (_onboardingState && _onboardingState.avatarPreviewUrl) {
+    try { URL.revokeObjectURL(_onboardingState.avatarPreviewUrl); } catch (e) {}
+  }
+  _onboardingState = {
+    roleKey: 'autre',
+    skills: [],
+    avatarBlob: null,
+    avatarPreviewUrl: null,
+  };
+  _onboardingStep = 1;
+  _renderOnboardingProgress();
+  _renderOnboardingRoleGrid();
+  _renderOnboardingSkills();
+  _renderOnboardingAvatar();
+  _showOnboardingStep(1);
+  // Clear field values too, but only if the form exists in the DOM.
+  const ids = ['signUpFirstName','signUpLastName','signUpAlias','signUpEmail',
+               'signUpPassword','signUpBio','signUpSpecialty','signUpPhone','signUpSkillInput'];
+  ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+}
+
+function _showOnboardingStep(n) {
+  _onboardingStep = n;
+  document.querySelectorAll('#authSignUpView .onboarding-step').forEach(s => {
+    s.classList.toggle('active', parseInt(s.dataset.step, 10) === n);
+  });
+  _renderOnboardingProgress();
+  if (n === 4) _renderOnboardingRecap();
+  // Focus the first input of the step for keyboard flow
+  setTimeout(() => {
+    const step = document.querySelector('#authSignUpView .onboarding-step.active');
+    if (!step) return;
+    const focusable = step.querySelector('input:not([type="file"]), textarea');
+    if (focusable && document.activeElement !== focusable) {
+      try { focusable.focus({ preventScroll: true }); } catch (e) {}
+    }
+  }, 80);
+}
+
+function _renderOnboardingProgress() {
+  document.querySelectorAll('#authSignUpView .onboarding-progress-dot').forEach(d => {
+    const n = parseInt(d.dataset.step, 10);
+    d.classList.remove('active','complete');
+    if (n === _onboardingStep) d.classList.add('active');
+    else if (n < _onboardingStep) d.classList.add('complete');
+  });
+  const lines = document.querySelectorAll('#authSignUpView .onboarding-progress-line');
+  lines.forEach((l, i) => {
+    // line i connects dot i+1 to dot i+2 (1-indexed)
+    l.classList.toggle('complete', _onboardingStep > i + 1);
+  });
+}
+
+function _renderOnboardingRoleGrid() {
+  const grid = document.getElementById('signUpRoleGrid');
+  if (!grid) return;
+  // Re-use the ROLES registry + _ROLE_DESCRIPTIONS already defined for the
+  // role-edit modal so we have a single source of truth.
+  const descriptions = (typeof _ROLE_DESCRIPTIONS === 'object' && _ROLE_DESCRIPTIONS) ? _ROLE_DESCRIPTIONS : {};
+  grid.innerHTML = ROLES.map(r => `
+    <button type="button"
+            class="onboarding-role-option ${_onboardingState && _onboardingState.roleKey === r.key ? 'active' : ''}"
+            data-role-key="${escapeHtml(r.key)}"
+            onclick="_selectOnboardingRole('${escapeHtml(r.key)}')"
+            role="radio"
+            aria-checked="${_onboardingState && _onboardingState.roleKey === r.key ? 'true' : 'false'}">
+      <span class="onboarding-role-label">${escapeHtml(r.label)}</span>
+      <span class="onboarding-role-desc">${escapeHtml(descriptions[r.key] || '')}</span>
+    </button>
+  `).join('');
+}
+function _selectOnboardingRole(key) {
+  if (!ROLE_BY_KEY[key]) return;
+  _onboardingState.roleKey = key;
+  document.querySelectorAll('#signUpRoleGrid .onboarding-role-option').forEach(btn => {
+    const active = btn.dataset.roleKey === key;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-checked', active ? 'true' : 'false');
+  });
+}
+
+function _renderOnboardingSkills() {
+  const container = document.getElementById('signUpSkillsList');
+  if (!container) return;
+  const skills = _onboardingState ? _onboardingState.skills : [];
+  if (!skills.length) {
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML = skills.map((s, i) => `
+    <span class="profile-chip">
+      ${escapeHtml(s)}
+      <button type="button" onclick="onboardingRemoveSkill(${i})" aria-label="Retirer ${escapeHtml(s)}">×</button>
+    </span>
+  `).join('');
+}
+function onboardingAddSkill() {
+  const input = document.getElementById('signUpSkillInput');
+  if (!input) return;
+  const value = input.value.trim().slice(0, 40);
+  if (!value) return;
+  if (_onboardingState.skills.some(s => s.toLowerCase() === value.toLowerCase())) {
+    input.value = ''; return;
+  }
+  _onboardingState.skills.push(value);
+  input.value = '';
+  _renderOnboardingSkills();
+  if (typeof haptic === 'function') haptic(6);
+}
+function onboardingRemoveSkill(i) {
+  _onboardingState.skills.splice(i, 1);
+  _renderOnboardingSkills();
+}
+
+function _renderOnboardingAvatar() {
+  const btn = document.getElementById('signUpAvatarBtn');
+  const initial = document.getElementById('signUpAvatarInitial');
+  const skip = document.getElementById('signUpAvatarSkip');
+  if (!btn || !initial) return;
+  // Seed initial from current first-name input
+  const first = (document.getElementById('signUpFirstName') || {}).value || '';
+  initial.textContent = (first.trim() || '?').charAt(0).toUpperCase() || '?';
+  if (_onboardingState && _onboardingState.avatarPreviewUrl) {
+    btn.style.backgroundImage = 'url(' + _onboardingState.avatarPreviewUrl + ')';
+    btn.classList.add('has-image');
+    if (skip) skip.hidden = false;
+  } else {
+    btn.style.backgroundImage = '';
+    btn.classList.remove('has-image');
+    if (skip) skip.hidden = true;
+  }
+}
+function onboardingHandleAvatar(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if (!file || !file.type || !file.type.startsWith('image/')) return;
+  if (typeof MAX_FILE_SIZE === 'number' && file.size > MAX_FILE_SIZE) {
+    toast('Image trop lourde.');
+    return;
+  }
+  if (_onboardingState.avatarPreviewUrl) {
+    try { URL.revokeObjectURL(_onboardingState.avatarPreviewUrl); } catch (e) {}
+  }
+  _onboardingState.avatarBlob = file;
+  _onboardingState.avatarPreviewUrl = URL.createObjectURL(file);
+  _renderOnboardingAvatar();
+}
+function onboardingClearAvatar() {
+  if (_onboardingState.avatarPreviewUrl) {
+    try { URL.revokeObjectURL(_onboardingState.avatarPreviewUrl); } catch (e) {}
+  }
+  _onboardingState.avatarBlob = null;
+  _onboardingState.avatarPreviewUrl = null;
+  _renderOnboardingAvatar();
+}
+
+function _renderOnboardingRecap() {
+  const el = document.getElementById('signUpRecap');
+  if (!el) return;
+  const first = (document.getElementById('signUpFirstName') || {}).value.trim() || '';
+  const last = (document.getElementById('signUpLastName') || {}).value.trim() || '';
+  const alias = (document.getElementById('signUpAlias') || {}).value.trim() || '';
+  const email = (document.getElementById('signUpEmail') || {}).value.trim() || '';
+  const bio = (document.getElementById('signUpBio') || {}).value.trim() || '';
+  const specialty = (document.getElementById('signUpSpecialty') || {}).value.trim() || '';
+  const phone = (document.getElementById('signUpPhone') || {}).value.trim() || '';
+  const role = ROLE_BY_KEY[_onboardingState.roleKey] || ROLE_BY_KEY['autre'];
+  const skills = _onboardingState.skills.join(', ');
+  const fullName = [first, last].filter(Boolean).join(' ');
+  const rows = [
+    ['Nom',       fullName || first || '—'],
+    ['Alias',     alias],
+    ['Email',     email],
+    ['Rôle',      role.label],
+    ['Spécialité', specialty],
+    ['Bio',       bio],
+    ['Compétences', skills],
+    ['Téléphone',  phone],
+  ];
+  el.innerHTML = rows.map(([k, v]) => `
+    <div class="onboarding-recap-row">
+      <dt>${escapeHtml(k)}</dt>
+      <dd class="${v ? '' : 'muted'}">${v ? escapeHtml(v) : '—'}</dd>
+    </div>
+  `).join('');
+}
+
+/* Step navigation + validation. Each "next" call validates the current step
+   then moves on. Validation errors surface via toast (consistent with the
+   rest of the app) — no native alert(). */
+function onboardingNext() {
+  if (_onboardingStep === 1) {
+    const first = (document.getElementById('signUpFirstName') || {}).value.trim();
+    const email = (document.getElementById('signUpEmail') || {}).value.trim();
+    const pwd   = (document.getElementById('signUpPassword') || {}).value || '';
+    if (!first)           { toast('Ton prénom est requis.'); return; }
+    if (!email || !/^.+@.+\..+$/.test(email)) { toast('Adresse email invalide.'); return; }
+    if (pwd.length < 6)   { toast('Le mot de passe doit faire au moins 6 caractères.'); return; }
+  }
+  if (_onboardingStep === 2) {
+    if (!_onboardingState.roleKey) {
+      toast('Choisis un rôle pour continuer.');
+      return;
+    }
+  }
+  if (_onboardingStep < 4) _showOnboardingStep(_onboardingStep + 1);
+}
+function onboardingBack() {
+  if (_onboardingStep > 1) _showOnboardingStep(_onboardingStep - 1);
+}
+
 async function signUpUser(ev) {
   ev.preventDefault();
-  const name = document.getElementById('signUpName').value.trim();
+  // If the user pressed Enter on an earlier step (the password field will
+  // naturally submit the form), advance to the next step instead of
+  // submitting prematurely. Only step 4 actually creates the account.
+  if (_onboardingStep && _onboardingStep < 4) {
+    onboardingNext();
+    return;
+  }
+  // Pull all fields from the 4-step state + the live inputs.
+  const first = document.getElementById('signUpFirstName').value.trim();
+  const last  = document.getElementById('signUpLastName').value.trim();
+  const alias = document.getElementById('signUpAlias').value.trim().slice(0, 32);
   const email = document.getElementById('signUpEmail').value.trim();
   const password = document.getElementById('signUpPassword').value;
-  const roleEl = document.querySelector('#signUpRoles .auth-role.active');
-  const role = roleEl ? roleEl.dataset.role : 'Autre';
-  if (!name) { toast('Prénom requis.'); return; }
+  const bio   = document.getElementById('signUpBio').value.trim();
+  const specialty = document.getElementById('signUpSpecialty').value.trim();
+  const phone = document.getElementById('signUpPhone').value.trim();
+  const name = [first, last].filter(Boolean).join(' ') || first;
+  const roleKey = (_onboardingState && _onboardingState.roleKey) || 'autre';
+  const role = (ROLE_BY_KEY[roleKey] || ROLE_BY_KEY['autre']).label;
+  const skills = (_onboardingState && _onboardingState.skills) || [];
+  const avatarBlob = _onboardingState && _onboardingState.avatarBlob;
+
+  // Step 1 sanity — also enforced earlier by onboardingNext() but submit can
+  // happen via Enter on the password field if the user skipped past it.
+  if (!first)        { toast('Ton prénom est requis.'); _showOnboardingStep(1); return; }
+  if (!email)        { toast('Email requis.'); _showOnboardingStep(1); return; }
+  if (!password || password.length < 6) {
+    toast('Mot de passe trop court.'); _showOnboardingStep(1); return;
+  }
   const btn = document.getElementById('signUpButton');
   btn.classList.add('auth-loading');
   btn.disabled = true;
@@ -7539,6 +8204,41 @@ async function signUpUser(ev) {
     // Session established — fully authenticated
     _currentUser = data.session.user;
     await ensureProfileExists(name, role);
+    // Persist all the extra onboarding data on the profile row in one update.
+    // Each field is wrapped in a guard so a Supabase schema lagging behind
+    // (column not yet added) doesn't throw — the basic profile still works.
+    try {
+      const extras = {};
+      if (alias)     extras.alias = alias;
+      if (bio)       extras.bio = bio;
+      if (specialty) extras.specialty = specialty;
+      if (phone)     extras.phone = phone;
+      if (skills && skills.length) extras.skills = skills;
+      if (Object.keys(extras).length) {
+        await sb.from('profiles').update(extras).eq('id', _currentUser.id);
+        // Mirror locally so the first render of "Mon profil" already shows everything.
+        if (_currentProfile) Object.assign(_currentProfile, extras);
+      }
+    } catch (e) { console.warn('signUp extras persist failed:', e); }
+
+    // Avatar — best-effort upload (covers bucket, avatar_{userId}.{ext}). Done
+    // after the profile row exists so RLS sees a matching id.
+    if (avatarBlob && typeof sbUploadFile === 'function') {
+      try {
+        const ext = ((avatarBlob.type || '').split('/')[1] || 'jpg').replace(/[^a-z0-9]/gi, '');
+        const path = (typeof PROFILE_AVATAR_PREFIX === 'string' ? PROFILE_AVATAR_PREFIX : 'avatar_')
+                   + _currentUser.id + '.' + ext;
+        const bucket = (typeof PROFILE_AVATAR_BUCKET === 'string' ? PROFILE_AVATAR_BUCKET : SB_BUCKET_COVERS);
+        const res = await sbUploadFile(bucket, path, avatarBlob);
+        if (res && res.ok) {
+          if (_currentProfile) _currentProfile.avatar_path = path;
+          await sb.from('profiles').update({ avatar_path: path }).eq('id', _currentUser.id);
+          // Cache locally so dashboard + chip pick it up without a refresh.
+          try { await idbSaveCover('user_' + _currentUser.id, avatarBlob); } catch (e) {}
+        }
+      } catch (e) { console.warn('signUp avatar upload failed:', e); }
+    }
+
     // Initialize workspace
     const cloudHasData = await loadWorkspaceFromCloud();
     if (!cloudHasData) {
@@ -7911,11 +8611,30 @@ function showSignIn() { showAuthView('authSignInView'); document.getElementById(
 function showSignUp() {
   showAuthView('authSignUpView');
   document.getElementById('authTag').textContent = 'Rejoins l\'équipe Noname × Degzzy.';
-  // Role click handlers
-  document.querySelectorAll('#signUpRoles .auth-role').forEach(r => {
-    r.onclick = () => {
-      document.querySelectorAll('#signUpRoles .auth-role').forEach(x => x.classList.remove('active'));
-      r.classList.add('active');
+  // 4-step onboarding state lives in _onboardingState; reset it each time the
+  // user lands on the signup view so an aborted flow doesn't bleed into a
+  // fresh attempt. Renders the role grid + progress bar + step 1.
+  if (typeof resetOnboardingState === 'function') resetOnboardingState();
+  // Keep the avatar initial in sync with the first-name field as the user
+  // types — gives a live preview on step 4.
+  const firstNameInput = document.getElementById('signUpFirstName');
+  if (firstNameInput && !firstNameInput.dataset.avatarBound) {
+    firstNameInput.dataset.avatarBound = '1';
+    firstNameInput.addEventListener('input', () => {
+      const initial = document.getElementById('signUpAvatarInitial');
+      if (initial && !document.getElementById('signUpAvatarBtn').classList.contains('has-image')) {
+        initial.textContent = (firstNameInput.value.trim() || '?').charAt(0).toUpperCase() || '?';
+      }
+    });
+  }
+  // Progress dot clicks — jump to that step only if it's already been visited
+  // (you can rewind, not skip ahead without filling). The visited-step set
+  // is implicit: any step <= current is OK to land on.
+  document.querySelectorAll('#authSignUpView .onboarding-progress-dot').forEach(d => {
+    d.onclick = () => {
+      const target = parseInt(d.dataset.step, 10);
+      if (!target || target > _onboardingStep) return;
+      _showOnboardingStep(target);
     };
   });
 }
