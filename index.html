@@ -875,15 +875,59 @@
 
   .track-audio {
     width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 12px;
     background: var(--surface-2);
-    border-radius: var(--radius-sm);
-    padding: 0;
+    border: 1px solid var(--border-soft);
+    border-radius: 999px;
+    padding: 8px 14px 8px 8px;
     margin-top: 4px;
+    transition: border-color var(--duration-fast) var(--ease-standard);
   }
-  .track-audio audio {
-    width: 100%;
+  .track-audio:hover { border-color: var(--border-strong); }
+  .track-audio-play {
+    flex-shrink: 0;
+    width: 36px;
     height: 36px;
-    filter: invert(0.85) hue-rotate(180deg) saturate(0.8);
+    border-radius: 50%;
+    border: none;
+    background: var(--text);
+    color: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    transition: transform var(--duration-fast) var(--ease-standard),
+                background var(--duration-fast) var(--ease-standard);
+  }
+  .track-audio-play:hover { transform: scale(1.05); background: var(--accent); color: var(--text); }
+  .track-audio-play:active { transform: scale(0.95); }
+  .track-audio-play[data-state="playing"] { background: var(--accent); color: var(--text); }
+  .track-audio-play svg { width: 14px; height: 14px; }
+  .track-audio-progress {
+    flex: 1;
+    height: 4px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 2px;
+    overflow: hidden;
+    cursor: pointer;
+  }
+  .track-audio-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--text);
+    transition: width 120ms linear;
+  }
+  .track-audio-time {
+    flex-shrink: 0;
+    font: var(--font-micro);
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+    min-width: 36px;
+    text-align: right;
   }
   .track-audio-empty {
     display: flex;
@@ -2059,7 +2103,7 @@
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.12em;
-    color: var(--text-dim);
+    color: var(--text-soft);
     text-align: center;
   }
   .cal-cell {
@@ -2074,7 +2118,9 @@
     position: relative;
   }
   .cal-cell:hover { background: var(--surface); }
-  .cal-cell.muted { opacity: 0.35; }
+  /* Prev/next-month tail cells: dim but still legible. Was 0.35 — invisible
+     on AMOLED phones in dim ambient light. */
+  .cal-cell.muted { opacity: 0.55; }
   .cal-cell.today { background: var(--surface); border: 1px solid var(--accent); }
   .cal-cell.overload { box-shadow: inset 0 0 0 1px rgba(255, 152, 0, 0.45); }
   .cal-cell-overload-flag {
@@ -2119,9 +2165,9 @@
     font-size: 0.9em;
   }
   .cal-day {
-    font-size: 12px;
-    color: var(--text-soft);
-    font-weight: 500;
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 600;
   }
   .cal-cell.today .cal-day { color: var(--accent); font-weight: 700; }
   .cal-event {
@@ -2429,6 +2475,7 @@
   .modal-bg.open { display: flex; }
   @keyframes modalBgIn { from { opacity: 0; } to { opacity: 1; } }
   .modal {
+    position: relative;
     background: var(--glass-bg-strong);
     backdrop-filter: var(--glass-blur-strong);
     -webkit-backdrop-filter: var(--glass-blur-strong);
@@ -2442,6 +2489,31 @@
     box-shadow: var(--elev-modal), var(--glass-shine);
     animation: modalIn var(--duration-slow) var(--ease-emphasized);
   }
+  /* Sticky X close — always reachable even when the modal scrolls (the role
+     list overflows on smaller phones, hiding the bottom Annuler button). */
+  .modal-close {
+    position: sticky;
+    top: 0;
+    margin-left: auto;
+    margin-right: -8px;
+    margin-top: -16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: var(--surface);
+    color: var(--text-soft);
+    font-size: 14px;
+    cursor: pointer;
+    z-index: 2;
+    transition: background var(--duration-fast) var(--ease-standard),
+                color var(--duration-fast) var(--ease-standard);
+  }
+  .modal-close:hover { background: var(--surface-2); color: var(--text); }
+  .modal-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   @keyframes modalIn {
     from { opacity: 0; transform: scale(0.96) translateY(8px); }
     to   { opacity: 1; transform: scale(1) translateY(0); }
@@ -7167,8 +7239,9 @@
 </div>
 
 <!-- ============================ ROLE MODAL — édition du rôle métier ============================ -->
-<div class="modal-bg" id="roleModal">
+<div class="modal-bg" id="roleModal" onclick="if (event.target === this) closeRoleModal()">
   <div class="modal">
+    <button type="button" class="modal-close" onclick="closeRoleModal()" aria-label="Fermer">✕</button>
     <div class="modal-title">Mon rôle</div>
     <div class="modal-sub">Détermine la façon dont le dashboard et le calendrier sont contextualisés pour toi. Tu peux le changer à tout moment.</div>
     <div class="modal-body">
@@ -11377,14 +11450,28 @@ async function hydrateAllCovers() {
   }
 }
 
+// Untitled-style pill row — single play button + thin progress bar + time.
+// Playback is delegated to MiniPlayer (Apple-Music floating pill), which
+// fixes the "audio doesn't play" bug from the inline <audio controls> and
+// gives a single, uniform playback surface across the app.
+const PLAY_ICON_SVG  = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+const PAUSE_ICON_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>';
+
+function _trackAudioPillHTML(t, durationLabel) {
+  return `
+    <div class="track-audio" data-track-id="${escapeHtml(t.id)}">
+      <button class="track-audio-play" type="button" aria-label="Lecture / pause" onclick="playTrackInMini('${escapeHtml(t.id)}')">${PLAY_ICON_SVG}</button>
+      <div class="track-audio-progress"><div class="track-audio-progress-fill"></div></div>
+      <span class="track-audio-time">${durationLabel || '0:00'}</span>
+    </div>
+  `;
+}
+
 function trackAudioInitialHTML(t) {
-  if (t.audio && typeof t.audio === 'string' && t.audio.startsWith('data:')) {
-    // Legacy base64 audio
-    return `<div class="track-audio"><audio controls src="${t.audio}"></audio></div>`;
-  }
-  if (t.idbAudio) {
-    // IDB audio — hydrate async
-    return `<div class="track-audio track-audio-loading"><div class="track-audio-loading-inner">Chargement de l'audio…</div></div>`;
+  if ((t.audio && typeof t.audio === 'string' && t.audio.startsWith('data:')) || t.idbAudio) {
+    // Legacy base64 OR IDB-stored audio — show the pill immediately so the
+    // user sees a play button. The hydration pass below updates duration/meta.
+    return _trackAudioPillHTML(t) + `<div class="track-audio-meta" data-meta-for="${escapeHtml(t.id)}"></div>`;
   }
   return `
     <label class="track-audio-empty">
@@ -11394,19 +11481,103 @@ function trackAudioInitialHTML(t) {
   `;
 }
 
+function _formatAudioTime(seconds) {
+  if (!isFinite(seconds) || seconds <= 0) return '0:00';
+  const s = Math.floor(seconds);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m + ':' + String(r).padStart(2, '0');
+}
+
 async function hydrateAllAudios() {
   for (const t of state.tracks) {
-    if (t.idbAudio) {
-      const data = await getTrackAudioUrl(t.id);
-      const slot = document.querySelector(`.track-audio-slot[data-track-id="${t.id}"]`);
-      if (slot && data) {
-        slot.innerHTML = `<div class="track-audio"><audio controls preload="metadata" src="${data.url}"></audio><div class="track-audio-meta">${escapeHtml(data.name)} · ${formatBytes(data.size)}</div></div>`;
-      } else if (slot && !data) {
-        // IDB marker but file missing — show upload
-        slot.innerHTML = trackAudioInitialHTML({ id: t.id });
-      }
+    if (!t.idbAudio && !(t.audio && typeof t.audio === 'string' && t.audio.startsWith('data:'))) continue;
+    const data = await getTrackAudioUrl(t.id);
+    const slot = document.querySelector(`.track-audio-slot[data-track-id="${t.id}"]`);
+    if (!slot) continue;
+    if (!data) {
+      // IDB marker but file missing — fall back to upload prompt.
+      slot.innerHTML = trackAudioInitialHTML({ id: t.id });
+      continue;
+    }
+    const meta = slot.querySelector(`[data-meta-for="${t.id}"]`);
+    if (meta) meta.textContent = data.name + ' · ' + formatBytes(data.size);
+    // Probe duration with a throwaway <audio> so the time label reflects the
+    // file before the user hits play. No autoplay, no controls — invisible.
+    try {
+      const probe = new Audio();
+      probe.preload = 'metadata';
+      probe.src = data.url;
+      probe.addEventListener('loadedmetadata', () => {
+        const pill = document.querySelector(`.track-audio[data-track-id="${t.id}"] .track-audio-time`);
+        if (pill) pill.textContent = _formatAudioTime(probe.duration);
+      }, { once: true });
+    } catch (e) {}
+  }
+}
+
+// Plays a catalogue track via the MiniPlayer. Resolves the audio URL from
+// the IDB/cloud fallback chain, fetches the cover if any, and hands both
+// to MiniPlayer.show(). Also wires lightweight progress sync back to the
+// originating pill so its bar fills as playback progresses.
+async function playTrackInMini(trackId) {
+  const track = (state.tracks || []).find(t => t.id === trackId);
+  if (!track) return;
+  const pillBtn = document.querySelector(`.track-audio[data-track-id="${trackId}"] .track-audio-play`);
+  const audioData = await getTrackAudioUrl(trackId);
+  if (!audioData || !audioData.url) {
+    toast('Audio introuvable — recharge l\'app.');
+    return;
+  }
+  let coverUrl = null;
+  try { coverUrl = await getTrackCoverUrl(trackId); } catch (e) {}
+  MiniPlayer.show(track, audioData.url, coverUrl);
+  _bindPillProgress(trackId);
+  if (pillBtn) {
+    pillBtn.dataset.state = 'playing';
+    pillBtn.innerHTML = PAUSE_ICON_SVG;
+  }
+}
+
+// Mirrors MiniPlayer's audio currentTime onto the originating pill so the
+// user sees the same progress on the row they clicked. Only one pill at a
+// time is "active" — the previous one resets when a new track starts.
+let _activePillTrackId = null;
+function _bindPillProgress(trackId) {
+  const audio = document.getElementById('miniPlayerAudio');
+  if (!audio) return;
+  if (_activePillTrackId && _activePillTrackId !== trackId) {
+    const prev = document.querySelector(`.track-audio[data-track-id="${_activePillTrackId}"]`);
+    if (prev) {
+      const fill = prev.querySelector('.track-audio-progress-fill');
+      if (fill) fill.style.width = '0%';
+      const btn = prev.querySelector('.track-audio-play');
+      if (btn) { btn.dataset.state = ''; btn.innerHTML = PLAY_ICON_SVG; }
     }
   }
+  _activePillTrackId = trackId;
+  if (audio._noNameBound) return;
+  audio._noNameBound = true;
+  audio.addEventListener('timeupdate', () => {
+    if (!_activePillTrackId || !audio.duration) return;
+    const pct = (audio.currentTime / audio.duration) * 100;
+    const fill = document.querySelector(`.track-audio[data-track-id="${_activePillTrackId}"] .track-audio-progress-fill`);
+    if (fill) fill.style.width = pct.toFixed(2) + '%';
+  });
+  audio.addEventListener('play', () => {
+    const btn = document.querySelector(`.track-audio[data-track-id="${_activePillTrackId}"] .track-audio-play`);
+    if (btn) { btn.dataset.state = 'playing'; btn.innerHTML = PAUSE_ICON_SVG; }
+  });
+  audio.addEventListener('pause', () => {
+    const btn = document.querySelector(`.track-audio[data-track-id="${_activePillTrackId}"] .track-audio-play`);
+    if (btn) { btn.dataset.state = ''; btn.innerHTML = PLAY_ICON_SVG; }
+  });
+  audio.addEventListener('ended', () => {
+    const fill = document.querySelector(`.track-audio[data-track-id="${_activePillTrackId}"] .track-audio-progress-fill`);
+    if (fill) fill.style.width = '0%';
+    const btn = document.querySelector(`.track-audio[data-track-id="${_activePillTrackId}"] .track-audio-play`);
+    if (btn) { btn.dataset.state = ''; btn.innerHTML = PLAY_ICON_SVG; }
+  });
 }
 
 async function handleTrackAudioUpload(trackId, ev) {
@@ -13275,8 +13446,9 @@ function renderProfile() {
   // Header
   const nameEl = document.getElementById('profileName');
   if (nameEl) nameEl.textContent = vm.name;
+  // Alias is contenteditable — same anti-clobber as the textareas below.
   const aliasEl = document.getElementById('profileAlias');
-  if (aliasEl) aliasEl.textContent = vm.alias;
+  if (aliasEl && document.activeElement !== aliasEl) aliasEl.textContent = vm.alias;
   const aliasLine = document.getElementById('profileAliasLine');
   if (aliasLine) aliasLine.style.display = vm.alias ? '' : 'flex'; // always visible — placeholder shows up via :empty::before
 
@@ -13288,17 +13460,22 @@ function renderProfile() {
   const sinceEl = document.getElementById('profileSince');
   if (sinceEl) sinceEl.textContent = _relativeSinceLong(vm.since);
 
-  // Editable fields
+  // Editable fields — skip overwriting whichever the user is currently editing.
+  // renderProfile() runs on every renderAll() (realtime sync, badge eval, save
+  // success, etc.) and used to clobber in-progress typing — the user could
+  // type but their deletions seemed to "revert" because the next render fired
+  // before onblur and rewrote the stored value back into the field.
+  const active = document.activeElement;
   const bioEl = document.getElementById('profileBio');
-  if (bioEl) bioEl.value = vm.bio;
+  if (bioEl && active !== bioEl) bioEl.value = vm.bio;
   const emailEl = document.getElementById('profileEmail');
-  if (emailEl) emailEl.value = vm.email;
+  if (emailEl && active !== emailEl) emailEl.value = vm.email;
   const phoneEl = document.getElementById('profilePhone');
-  if (phoneEl) phoneEl.value = vm.phone;
+  if (phoneEl && active !== phoneEl) phoneEl.value = vm.phone;
   const specEl = document.getElementById('profileSpecialty');
-  if (specEl) specEl.value = vm.specialty;
+  if (specEl && active !== specEl) specEl.value = vm.specialty;
   const visEl = document.getElementById('profileActivityVisibility');
-  if (visEl) visEl.value = vm.activityVisibility;
+  if (visEl && active !== visEl) visEl.value = vm.activityVisibility;
 
   // Stats — derived from local state (todos / events created by me)
   renderProfileStats(vm);
@@ -16512,12 +16689,17 @@ document.addEventListener('keydown', (e) => {
   }
   const eventModal = document.getElementById('eventModal');
   const inspiModal = document.getElementById('inspiModal');
+  const roleModal  = document.getElementById('roleModal');
   if (eventModal && eventModal.classList.contains('open') && typeof closeEventModal === 'function') {
     closeEventModal();
     return;
   }
   if (inspiModal && inspiModal.classList.contains('open') && typeof closeInspiModal === 'function') {
     closeInspiModal();
+    return;
+  }
+  if (roleModal && roleModal.classList.contains('open') && typeof closeRoleModal === 'function') {
+    closeRoleModal();
     return;
   }
   // Detail pane back
