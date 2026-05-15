@@ -2049,6 +2049,18 @@
     pointer-events: none;
   }
   .cal-event.conflict { position: relative; padding-right: 14px; }
+  .cal-event.is-span-mid,
+  .cal-event.is-span-end { border-left-style: dashed; }
+  .cal-event.is-span-start { border-radius: 2px 0 0 2px; }
+  .cal-event.is-span-end   { border-radius: 0 2px 2px 0; }
+  .cal-event.is-span-mid   { border-radius: 0; }
+  .cal-event.is-recurring::before,
+  .cal-week-event.is-recurring::before {
+    content: '↻';
+    margin-right: 3px;
+    color: var(--text-soft);
+    font-size: 0.9em;
+  }
   .cal-day {
     font-size: 12px;
     color: var(--text-soft);
@@ -7131,6 +7143,25 @@
           </select>
         </div>
       </div>
+      <div class="field-row">
+        <div class="field" style="flex: 1;">
+          <label>Date de fin <span class="auth-field-optional">(si plusieurs jours)</span></label>
+          <input type="date" id="eventEndDate" />
+        </div>
+        <div class="field" style="flex: 1;">
+          <label>Récurrence</label>
+          <select id="eventRecurrence" onchange="_refreshRecurrenceUntilVisibility()">
+            <option value="none" selected>Aucune</option>
+            <option value="daily">Tous les jours</option>
+            <option value="weekly">Toutes les semaines</option>
+            <option value="monthly">Tous les mois</option>
+          </select>
+        </div>
+        <div class="field" style="flex: 1;" id="eventRecurrenceUntilField">
+          <label>Jusqu'au <span class="auth-field-optional">(optionnel)</span></label>
+          <input type="date" id="eventRecurrenceUntil" />
+        </div>
+      </div>
       <div class="field">
         <label>Type</label>
         <select id="eventType">
@@ -11527,6 +11558,114 @@ function _conflictTooltip(others) {
   return 'Conflit avec : ' + names;
 }
 
+/* ============================
+   MULTI-DAY + RECURRENCE
+   Events can carry an optional `endDate` (multi-day span) and an optional
+   `recurrence` object `{ freq: 'daily'|'weekly'|'monthly', until?: 'YYYY-MM-DD' }`.
+   Both are flattened to per-day virtual instances at render time only —
+   nothing here mutates `state.events`. Virtual instances share the parent's
+   id (so `openDetail`/edit/drag still resolve to the real event) and carry
+   render-only `_isVirtual` / `_spanIndex` / `_spanTotal` / `_isRecurring`
+   flags used by the renderers.
+   Horizon clamp at 730 days keeps a pathological "daily, no until" from
+   exploding into thousands of pills.
+   ============================ */
+const RECURRENCE_HORIZON_DAYS = 730;
+
+function _addDays(iso, n) {
+  const d = _parseIso(iso);
+  if (!d) return iso;
+  d.setDate(d.getDate() + n);
+  return _isoDate(d);
+}
+function _diffDays(aIso, bIso) {
+  const a = _parseIso(aIso), b = _parseIso(bIso);
+  if (!a || !b) return 0;
+  return Math.round((b - a) / 86400000);
+}
+function _isoMin(a, b) { return (a && b) ? (a < b ? a : b) : (a || b); }
+function _isoMax(a, b) { return (a && b) ? (a > b ? a : b) : (a || b); }
+
+// Generates one virtual event per day for a multi-day span. Single-day events
+// return as-is (no flags added). Virtual instances mirror the parent's fields
+// 1:1 except `date`, and gain `_spanIndex`/`_spanTotal` for renderer hints.
+function _expandMultiDay(ev) {
+  if (!ev || !ev.endDate || ev.endDate <= ev.date) return [ev];
+  const span = _diffDays(ev.date, ev.endDate) + 1;
+  if (span <= 1) return [ev];
+  const out = [];
+  for (let i = 0; i < span; i++) {
+    const day = _addDays(ev.date, i);
+    out.push(Object.assign({}, ev, {
+      date: day,
+      _isVirtual: true,
+      _spanIndex: i,
+      _spanTotal: span,
+    }));
+  }
+  return out;
+}
+
+// Steps the recurrence forward one tick. Returns null if the next step would
+// exceed RECURRENCE_HORIZON_DAYS or the recurrence's own `until` cap.
+function _stepRecurrence(iso, freq) {
+  const d = _parseIso(iso);
+  if (!d) return null;
+  if (freq === 'daily')   d.setDate(d.getDate() + 1);
+  else if (freq === 'weekly')  d.setDate(d.getDate() + 7);
+  else if (freq === 'monthly') d.setMonth(d.getMonth() + 1);
+  else return null;
+  return _isoDate(d);
+}
+
+// Generates the set of occurrences inside [windowStart, windowEnd]. Each
+// occurrence is itself passed through _expandMultiDay so a recurring 3-day
+// shoot expands into [N occurrences] × [3 days]. Non-recurring events return
+// their multi-day expansion (still a no-op for the single-day common case).
+function _expandRecurrence(ev, windowStart, windowEnd) {
+  if (!ev) return [];
+  const rec = ev.recurrence;
+  if (!rec || !rec.freq || rec.freq === 'none') return _expandMultiDay(ev);
+  const horizonEnd = _addDays(ev.date, RECURRENCE_HORIZON_DAYS);
+  const lastAllowed = _isoMin(windowEnd, _isoMin(rec.until || horizonEnd, horizonEnd));
+  const occurrences = [];
+  let cur = ev.date;
+  let safety = 0;
+  while (cur && cur <= lastAllowed && safety++ < 2000) {
+    // Only include occurrences whose span intersects the window
+    const occ = Object.assign({}, ev, { date: cur, _isRecurring: true });
+    const expanded = _expandMultiDay(occ);
+    for (const v of expanded) {
+      if (v.date >= windowStart && v.date <= windowEnd) occurrences.push(v);
+    }
+    cur = _stepRecurrence(cur, rec.freq);
+  }
+  return occurrences;
+}
+
+// Flattens an event list into renderable per-day virtual instances within
+// [windowStart, windowEnd]. Used by both month and week renderers.
+function expandEventsForWindow(events, windowStart, windowEnd) {
+  if (!Array.isArray(events)) return [];
+  const out = [];
+  for (const ev of events) {
+    if (!ev || !ev.date) continue;
+    const rec = ev.recurrence;
+    if (rec && rec.freq && rec.freq !== 'none') {
+      const expanded = _expandRecurrence(ev, windowStart, windowEnd);
+      for (const v of expanded) out.push(v);
+    } else if (ev.endDate && ev.endDate > ev.date) {
+      const expanded = _expandMultiDay(ev);
+      for (const v of expanded) {
+        if (v.date >= windowStart && v.date <= windowEnd) out.push(v);
+      }
+    } else {
+      if (ev.date >= windowStart && ev.date <= windowEnd) out.push(ev);
+    }
+  }
+  return out;
+}
+
 function renderWeekView() {
   const grid = document.getElementById('calendarGrid');
   if (!grid) return;
@@ -11562,6 +11701,11 @@ function renderWeekView() {
   // Build HTML
   const todayIso = _isoDate(new Date());
   const dayNames = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+  // Expand multi-day + recurring events for the week window, then we keep the
+  // per-day filtering identical to the previous loop.
+  const weekStartIso = _isoDate(days[0]);
+  const weekEndIso = _isoDate(days[6]);
+  const expandedWeek = expandEventsForWindow(state.events, weekStartIso, weekEndIso);
   let html = '<div class="cal-week-gutter-head"></div>';
   for (let i = 0; i < 7; i++) {
     const iso = _isoDate(days[i]);
@@ -11585,8 +11729,9 @@ function renderWeekView() {
       html += `<div class="cal-week-hour-slot" data-date="${iso}" data-hour="${h}"></div>`;
     }
     // Events whose date matches this day, filtered by visibility (private events
-    // owned by other users are hidden).
-    const evs = filterVisibleEvents(state.events).filter(e => e.date === iso);
+    // owned by other users are hidden). Uses the pre-expanded window so multi-day
+    // spans and recurring occurrences appear on each of their days.
+    const evs = filterVisibleEvents(expandedWeek).filter(e => e.date === iso);
     const conflicts = detectEventConflicts(evs);
     for (const e of evs) {
       let mins = _timeToMins(e.time);
@@ -11603,14 +11748,25 @@ function renderWeekView() {
       const conflictWith = conflicts.get(e.id);
       const baseTip = _eventTooltip(e);
       const conflictTip = _conflictTooltip(conflictWith);
-      const tip = [baseTip, conflictTip].filter(Boolean).join(' — ');
+      const spanTip = (e._spanTotal && e._spanTotal > 1)
+        ? `Jour ${e._spanIndex + 1} / ${e._spanTotal}`
+        : '';
+      const tip = [baseTip, conflictTip, spanTip].filter(Boolean).join(' — ');
       const conflictCls = conflictWith ? ' conflict' : '';
+      const recurringCls = e._isRecurring ? ' is-recurring' : '';
+      const spanCls = e._spanTotal && e._spanTotal > 1
+        ? (e._spanIndex === 0
+            ? ' is-span-start'
+            : (e._spanIndex === e._spanTotal - 1 ? ' is-span-end' : ' is-span-mid'))
+        : '';
       const avatar = e.createdBy ? _eventActorAvatarHTML(e.createdBy) : '';
       // Resize handle hidden for all-day pills (no duration semantic).
-      const resizeHandle = allDay ? '' : '<div class="cal-week-event-resize" data-resize-handle="1"></div>';
+      // Also hidden on mid/end span days — duration belongs to the parent event,
+      // resizing a non-anchor cell would be confusing.
+      const resizeHandle = (allDay || spanCls) ? '' : '<div class="cal-week-event-resize" data-resize-handle="1"></div>';
       // Per-event tag filter — skip rendering if it doesn't match the active tag.
       if (!_entityMatchesTagFilter(e)) continue;
-      html += `<div class="cal-week-event${conflictCls}" data-type="${escapeHtml(e.type)}" data-visibility="${e.visibility === 'private' ? 'private' : 'team'}" data-event-id="${escapeHtml(e.id)}"
+      html += `<div class="cal-week-event${conflictCls}${recurringCls}${spanCls}" data-type="${escapeHtml(e.type)}" data-visibility="${e.visibility === 'private' ? 'private' : 'team'}" data-event-id="${escapeHtml(e.id)}"
                     style="top:${top + 2}px; height:${height}px;"${tip ? ` title="${escapeHtml(tip)}"` : ''}>
         ${avatar ? `<div class="cal-week-event-actor">${avatar}</div>` : ''}
         ${timeLabel ? `<div class="cal-week-event-time">${timeLabel}</div>` : ''}
@@ -11922,6 +12078,12 @@ function renderMonthView() {
   let html = heads.map(h => `<div class="cal-head">${h}</div>`).join('');
   const today = new Date(); today.setHours(0,0,0,0);
 
+  // Expand events for the visible month window. Recurring events that started
+  // before the month but extend into it (or beyond) get expanded here too.
+  const monthStartIso = `${year}-${String(month).padStart(2,'0')}-01`;
+  const monthEndIso = `${year}-${String(month).padStart(2,'0')}-${String(daysInMonth).padStart(2,'0')}`;
+  const expandedMonth = expandEventsForWindow(state.events, monthStartIso, monthEndIso);
+
   // Prev month tail
   for (let i = startWeek - 1; i >= 0; i--) {
     const d = prevDays - i;
@@ -11933,7 +12095,7 @@ function renderMonthView() {
     const iso = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
     const isToday = date.getTime() === today.getTime();
     // Visibility filter: hide private events owned by other users from the month grid.
-    const events = filterVisibleEvents(state.events).filter(e => e.date === iso);
+    const events = filterVisibleEvents(expandedMonth).filter(e => e.date === iso);
     const conflicts = detectEventConflicts(events);
     const visibleEvents = events.filter(_entityMatchesTagFilter);
     const isOverloaded = visibleEvents.length > OVERLOAD_THRESHOLD;
@@ -11950,14 +12112,27 @@ function renderMonthView() {
           const conflictWith = conflicts.get(e.id);
           const baseTip = _eventTooltip(e);
           const conflictTip = _conflictTooltip(conflictWith);
-          const tip = [baseTip, conflictTip].filter(Boolean).join(' — ');
+          const spanTip = (e._spanTotal && e._spanTotal > 1)
+            ? `Jour ${e._spanIndex + 1} / ${e._spanTotal}`
+            : '';
+          const tip = [baseTip, conflictTip, spanTip].filter(Boolean).join(' — ');
           const conflictCls = conflictWith ? ' conflict' : '';
+          const recurringCls = e._isRecurring ? ' is-recurring' : '';
+          const spanCls = e._spanTotal && e._spanTotal > 1
+            ? (e._spanIndex === 0
+                ? ' is-span-start'
+                : (e._spanIndex === e._spanTotal - 1 ? ' is-span-end' : ' is-span-mid'))
+            : '';
+          // Mid/end span days: drop the time prefix — the time belongs to the start day.
+          const isContinuation = spanCls && !spanCls.includes('start');
           const avatar = e.createdBy ? _eventActorAvatarHTML(e.createdBy) : '';
           // Show duration suffix only when it's not the default 1h — keeps month pills tight.
           const dur = parseInt(e.duration, 10);
-          const durSuffix = (e.time && dur && dur !== 60) ? ` <span class="cal-event-dur">(${_formatDuration(dur)})</span>` : '';
+          const durSuffix = (e.time && dur && dur !== 60 && !isContinuation) ? ` <span class="cal-event-dur">(${_formatDuration(dur)})</span>` : '';
           const tagHtml = (Array.isArray(e.tags) && e.tags.length) ? ' ' + tagChipsHTML(e.tags, { limit: 1 }) : '';
-          return `<div class="cal-event${conflictCls}" data-type="${escapeHtml(e.type)}" data-visibility="${e.visibility === 'private' ? 'private' : 'team'}" data-event-id="${escapeHtml(e.id)}"${tip ? ` title="${escapeHtml(tip)}"` : ''}>${avatar}${e.time ? `<strong>${formatEventTime(e.time)}</strong>${durSuffix} ` : ''}${escapeHtml(e.title)}${tagHtml}</div>`;
+          const timeHtml = (e.time && !isContinuation) ? `<strong>${formatEventTime(e.time)}</strong>${durSuffix} ` : '';
+          const titlePrefix = isContinuation ? '▸ ' : '';
+          return `<div class="cal-event${conflictCls}${recurringCls}${spanCls}" data-type="${escapeHtml(e.type)}" data-visibility="${e.visibility === 'private' ? 'private' : 'team'}" data-event-id="${escapeHtml(e.id)}"${tip ? ` title="${escapeHtml(tip)}"` : ''}>${avatar}${timeHtml}${titlePrefix}${escapeHtml(e.title)}${tagHtml}</div>`;
         }).join('')}
       </div>
     `;
@@ -12152,6 +12327,9 @@ function openEventModal(date = null, eventId = null) {
     document.getElementById('eventWith').value = e.with || '';
     document.getElementById('eventNotes').value = e.notes || '';
     document.getElementById('eventTags').value = tagsToInput(e.tags);
+    document.getElementById('eventEndDate').value = e.endDate || '';
+    document.getElementById('eventRecurrence').value = (e.recurrence && e.recurrence.freq) || 'none';
+    document.getElementById('eventRecurrenceUntil').value = (e.recurrence && e.recurrence.until) || '';
     _setEventVisibility(e.visibility === 'private' ? 'private' : 'team');
   } else {
     editingEventId = null;
@@ -12165,8 +12343,19 @@ function openEventModal(date = null, eventId = null) {
     document.getElementById('eventWith').value = '';
     document.getElementById('eventNotes').value = '';
     document.getElementById('eventTags').value = '';
+    document.getElementById('eventEndDate').value = '';
+    document.getElementById('eventRecurrence').value = 'none';
+    document.getElementById('eventRecurrenceUntil').value = '';
     _setEventVisibility('team');
   }
+  _refreshRecurrenceUntilVisibility();
+}
+
+// "Jusqu'au" only makes sense once a recurrence is picked; hide it for "Aucune".
+function _refreshRecurrenceUntilVisibility() {
+  const freq = (document.getElementById('eventRecurrence') || {}).value || 'none';
+  const wrap = document.getElementById('eventRecurrenceUntilField');
+  if (wrap) wrap.style.display = freq === 'none' ? 'none' : '';
 }
 
 // Sync the hidden input + active state on the segmented visibility toggle.
@@ -12380,10 +12569,25 @@ function saveEvent() {
   const visibility = visibilityRaw === 'private' ? 'private' : 'team';
   const tagsRaw = (document.getElementById('eventTags') || {}).value;
   const tags = parseTagsInput(tagsRaw);
+  // endDate is only persisted when it actually creates a span (> date) — keeps the
+  // common single-day shape pristine in the JSONB blob.
+  const endDateRaw = (document.getElementById('eventEndDate') || {}).value;
+  const endDate = (endDateRaw && endDateRaw > date) ? endDateRaw : null;
+  const freqRaw = (document.getElementById('eventRecurrence') || {}).value || 'none';
+  const untilRaw = (document.getElementById('eventRecurrenceUntil') || {}).value || '';
+  // Recurrence is persisted as an object so future fields (byDay, count) slot in
+  // without a schema migration. Absent ⇒ single occurrence.
+  const recurrence = (freqRaw === 'none')
+    ? null
+    : { freq: freqRaw, until: (untilRaw && untilRaw >= date) ? untilRaw : null };
   if (!title || !date) { toast('Titre et date requis.'); return; }
+  if (endDateRaw && endDateRaw < date) { toast('La date de fin doit être après la date de début.'); return; }
   if (editingEventId) {
     const e = state.events.find(x => x.id === editingEventId);
-    Object.assign(e, { title, date, time, duration, type, location, with: withWho, notes, visibility, tags });
+    Object.assign(e, { title, date, time, duration, type, location, with: withWho, notes, visibility, tags, endDate, recurrence });
+    // Strip nullified fields rather than leave noisy null values in the JSONB.
+    if (!endDate) delete e.endDate;
+    if (!recurrence) delete e.recurrence;
     _stampEventUpdate(e);
     // Audit log — fire-and-forget. Skipped for private events (audit feed
     // is visible to the whole team; private events shouldn't leak via it).
@@ -12392,6 +12596,8 @@ function saveEvent() {
     }
   } else {
     const ev = { id: 'e' + Date.now(), title, date, time, duration, type, location, with: withWho, notes, visibility, tags };
+    if (endDate) ev.endDate = endDate;
+    if (recurrence) ev.recurrence = recurrence;
     _stampEventCreate(ev);
     state.events.push(ev);
     if (visibility !== 'private' && typeof logActivity === 'function') {
