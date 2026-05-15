@@ -6861,6 +6861,24 @@
 
         <div class="profile-notif-list" id="profileNotifList"></div>
       </section>
+
+      <section class="profile-section">
+        <header class="profile-section-head">
+          <h2>Monitoring</h2>
+          <span class="profile-section-meta">Capture les erreurs JS dans Sentry</span>
+        </header>
+        <div class="profile-fields">
+          <div class="profile-field">
+            <label>Sentry DSN <span class="auth-field-optional">(optionnel)</span></label>
+            <input type="url" id="profileSentryDsn" placeholder="https://xxx@oNNN.ingest.sentry.io/NNN"
+                   autocomplete="off" spellcheck="false"
+                   onchange="updateSentryDsn(this.value)" />
+            <span class="profile-field-hint" id="profileSentryStatus">
+              Colle le DSN de ton projet Sentry pour activer la capture d'erreurs (rechargement nécessaire).
+            </span>
+          </div>
+        </div>
+      </section>
     </div>
 
     <!-- ============================ TODOS ============================ -->
@@ -9681,6 +9699,8 @@ async function enterApp() {
     subscribeToWorkspaceRealtime();
     if (typeof subscribeToPresenceRealtime === 'function') subscribeToPresenceRealtime();
     if (typeof startNotificationDelivery === 'function') startNotificationDelivery();
+    // Sentry — tag the user so issues are attributable. No-op if Sentry isn't initialized.
+    if (typeof identifySentryUser === 'function') identifySentryUser();
     const name = _currentProfile?.name || 'toi';
     toast(`Bienvenue, ${name}.`);
     haptic(20);
@@ -12975,6 +12995,9 @@ function renderProfile() {
   // Badges — Phase 2B-2: shows the user's earned badges + locked silhouettes.
   renderProfileBadges(vm);
 
+  // Sentry DSN field — pre-populated from localStorage so the user sees what's saved.
+  if (typeof _hydrateSentryDsnField === 'function') _hydrateSentryDsnField();
+
   // Avatar — load from IDB cache, fall back to Supabase Storage
   refreshProfileAvatar(vm).catch(e => console.warn('avatar refresh failed:', e));
 }
@@ -13359,6 +13382,127 @@ function renderNotifPermBanner(container) {
       <button class="btn btn-primary btn-sm" onclick="requestNotificationPermission()" type="button">Activer</button>
     </div>
   `;
+}
+
+/* ============================
+   SENTRY MONITORING — opt-in JS error capture. DSN lives in localStorage
+   so the source can stay on a public GitHub Pages site without baking in
+   per-tenant credentials. When a DSN is present at boot we lazy-load the
+   official Sentry browser SDK from the CDN, init it, and attach the auth
+   user once they log in so issues are tagged by actor.
+   ============================ */
+const SENTRY_DSN_KEY = 'noname_sentry_dsn';
+const SENTRY_CDN_URL = 'https://browser.sentry-cdn.com/8.30.0/bundle.min.js';
+const SENTRY_CDN_INTEGRITY = 'sha384-' /* CDN hash check skipped — using static version pin instead. */;
+let _sentryReady = false;
+let _sentryLoading = null;
+
+function getSentryDsn() {
+  try { return (localStorage.getItem(SENTRY_DSN_KEY) || '').trim(); } catch (e) { return ''; }
+}
+
+function _loadSentrySdk() {
+  if (_sentryLoading) return _sentryLoading;
+  _sentryLoading = new Promise((resolve, reject) => {
+    if (window.Sentry && typeof window.Sentry.init === 'function') {
+      return resolve(window.Sentry);
+    }
+    const s = document.createElement('script');
+    s.src = SENTRY_CDN_URL;
+    s.async = true;
+    s.crossOrigin = 'anonymous';
+    s.onload = () => resolve(window.Sentry);
+    s.onerror = (e) => reject(new Error('Sentry SDK failed to load'));
+    document.head.appendChild(s);
+  });
+  return _sentryLoading;
+}
+
+async function initSentryIfConfigured() {
+  const dsn = getSentryDsn();
+  if (!dsn) return false;
+  try {
+    const Sentry = await _loadSentrySdk();
+    if (!Sentry || _sentryReady) return _sentryReady;
+    Sentry.init({
+      dsn,
+      // Keep it minimal — no performance traces (would inflate the quota fast
+      // on a single-file SPA that fires `state.json` saves on every keypress).
+      tracesSampleRate: 0,
+      // Sample non-error breadcrumbs at 100% — we have low volume.
+      maxBreadcrumbs: 50,
+      release: 'deggzy-team@' + (window.NONAME_BUILD_SHA || 'dev'),
+      // Tag every event so the Sentry project dashboard groups by environment.
+      environment: location.hostname === 'shweppsss.github.io' ? 'production' : 'dev',
+      beforeSend(event) {
+        // Drop the noisy ResizeObserver loop messages — they're harmless browser warnings.
+        const msg = event && event.message || (event.exception && event.exception.values && event.exception.values[0] && event.exception.values[0].value) || '';
+        if (typeof msg === 'string' && msg.indexOf('ResizeObserver loop') !== -1) return null;
+        return event;
+      },
+    });
+    _sentryReady = true;
+    // If auth is already settled, identify the user immediately.
+    if (_currentUser && typeof identifySentryUser === 'function') identifySentryUser();
+    console.log('[Sentry] initialized');
+    return true;
+  } catch (e) {
+    console.warn('[Sentry] init failed:', e);
+    return false;
+  }
+}
+
+function identifySentryUser() {
+  if (!_sentryReady || !window.Sentry) return;
+  if (!_currentUser) return;
+  try {
+    window.Sentry.setUser({
+      id: _currentUser.id,
+      email: _currentUser.email,
+      username: (_currentProfile && _currentProfile.name) || undefined,
+    });
+    window.Sentry.setTag('role', (_currentProfile && _currentProfile.role) || 'unknown');
+  } catch (e) { /* never let monitoring crash the app */ }
+}
+
+// Captures an exception with Sentry if it's loaded — no-op otherwise.
+// Use for handled errors that would otherwise be swallowed (try/catch around
+// renderXxx, save flows, etc.) where we want visibility without crashing.
+function captureSentryException(err, context) {
+  if (!_sentryReady || !window.Sentry || !err) return;
+  try {
+    window.Sentry.captureException(err, context ? { extra: context } : undefined);
+  } catch (e) { /* never let monitoring crash the app */ }
+}
+
+// Called from the profile DSN input — persists, then re-evaluates init.
+// A reload is needed to remove an already-initialized SDK; we tell the user.
+function updateSentryDsn(value) {
+  const dsn = (value || '').trim();
+  const status = document.getElementById('profileSentryStatus');
+  try {
+    if (dsn) localStorage.setItem(SENTRY_DSN_KEY, dsn);
+    else localStorage.removeItem(SENTRY_DSN_KEY);
+  } catch (e) {}
+  if (!dsn) {
+    if (status) status.textContent = 'DSN effacé — recharge la page pour désactiver complètement.';
+    return;
+  }
+  if (status) status.textContent = 'DSN enregistré — chargement de Sentry…';
+  initSentryIfConfigured().then(ok => {
+    if (status) status.textContent = ok
+      ? '✅ Sentry actif. Les erreurs JS sont capturées.'
+      : '⚠ Chargement du SDK Sentry échoué (réseau ?). Réessaie ou recharge.';
+  });
+}
+
+// Pre-populate the DSN field on profile open so the user sees what's saved.
+function _hydrateSentryDsnField() {
+  const input = document.getElementById('profileSentryDsn');
+  if (!input) return;
+  input.value = getSentryDsn();
+  const status = document.getElementById('profileSentryStatus');
+  if (status && _sentryReady) status.textContent = '✅ Sentry actif. Les erreurs JS sont capturées.';
 }
 
 /* ============================
@@ -15856,7 +16000,17 @@ function renderAll(opts) {
   const only = (opts && Array.isArray(opts.only)) ? new Set(opts.only) : null;
   for (const name in RENDER_SECTIONS) {
     if (only && !only.has(name)) continue;
-    try { RENDER_SECTIONS[name](); } catch (e) { console.error('[Render] ' + name + ' failed:', e); }
+    try {
+      RENDER_SECTIONS[name]();
+    } catch (e) {
+      console.error('[Render] ' + name + ' failed:', e);
+      // Surface render failures to Sentry when configured so we know what
+      // broke in production. captureSentryException is a no-op when Sentry
+      // isn't loaded, so this stays free in the default install.
+      if (typeof captureSentryException === 'function') {
+        captureSentryException(e, { renderSection: name });
+      }
+    }
   }
 }
 
@@ -15928,6 +16082,12 @@ function diffStateScopes(oldState, newState) {
 
 // Boot the auth screen FIRST — errors in renders below must never block login.
 checkAuth().catch(e => console.error('[Boot] checkAuth failed:', e));
+
+// Sentry — opt-in JS error capture. Reads DSN from localStorage; the SDK
+// only loads if one is configured, so the default install pays zero cost.
+if (typeof initSentryIfConfigured === 'function') {
+  initSentryIfConfigured().catch(e => console.warn('[Sentry] boot init failed:', e));
+}
 
 // Safety net: if no auth form is visible 1.6s after boot, force the sign-in view.
 // We trust computed style — not inline el.style.display — so this still works
