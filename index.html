@@ -4962,6 +4962,129 @@
   }
   .role-widget-empty strong { color: var(--text-soft); font-weight: 600; }
 
+  /* BADGES — gallery on profile page + reveal overlay.
+     Earned badges in full color; locked ones desaturated. */
+  .profile-badges {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+  }
+  .profile-badge {
+    padding: 14px 12px;
+    border-radius: var(--radius);
+    background: var(--glass-bg);
+    border: 1px solid var(--border-soft);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 4px;
+    transition: transform var(--duration-fast) var(--ease-standard),
+                border-color var(--duration-fast) var(--ease-standard);
+  }
+  .profile-badge:hover { transform: translateY(-1px); border-color: var(--border-strong); }
+  .profile-badge-icon {
+    font-size: 28px;
+    line-height: 1;
+    margin-bottom: 4px;
+    filter: grayscale(1) opacity(0.4);
+    transition: filter var(--duration-base) var(--ease-emphasized);
+  }
+  .profile-badge.is-earned .profile-badge-icon { filter: none; }
+  .profile-badge-label {
+    font: var(--font-body);
+    font-weight: 600;
+    color: var(--text-soft);
+  }
+  .profile-badge.is-earned .profile-badge-label { color: var(--text); }
+  .profile-badge-desc {
+    font: var(--font-caption);
+    color: var(--text-dim);
+    line-height: 1.3;
+  }
+  .profile-badge-when {
+    font: var(--font-micro);
+    letter-spacing: var(--tracking-micro);
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+  .profile-badge.is-earned .profile-badge-when {
+    color: var(--accent);
+  }
+
+  /* BADGE REVEAL OVERLAY — full-screen, brief, celebratory */
+  .badge-reveal {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.55);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    animation: badge-reveal-in 0.4s var(--ease-decelerate);
+    pointer-events: none;
+  }
+  .badge-reveal.badge-reveal-fade {
+    opacity: 0;
+    transition: opacity 0.5s ease-out;
+  }
+  @keyframes badge-reveal-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  .badge-reveal-card {
+    background: linear-gradient(135deg, rgba(28,28,30,0.92), rgba(20,20,22,0.92));
+    border: 1px solid rgba(var(--accent-rgb), 0.5);
+    border-radius: var(--radius-lg);
+    padding: 32px 36px;
+    text-align: center;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.6),
+                0 0 60px rgba(var(--accent-rgb), 0.35);
+    animation: badge-reveal-card 0.5s var(--ease-emphasized);
+    max-width: 320px;
+  }
+  @keyframes badge-reveal-card {
+    from { transform: scale(0.7) rotate(-6deg); opacity: 0; }
+    to   { transform: scale(1) rotate(0deg);    opacity: 1; }
+  }
+  .badge-reveal-icon {
+    font-size: 64px;
+    line-height: 1;
+    margin-bottom: 10px;
+    animation: badge-reveal-icon 1.6s var(--ease-standard) infinite;
+  }
+  @keyframes badge-reveal-icon {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.08); }
+  }
+  .badge-reveal-eyebrow {
+    font: var(--font-micro);
+    letter-spacing: var(--tracking-micro);
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .badge-reveal-label {
+    font: var(--font-display-l);
+    font-size: 22px;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .badge-reveal-desc {
+    font: var(--font-body);
+    color: var(--text-soft);
+    line-height: 1.4;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .badge-reveal-card, .badge-reveal-icon { animation: none; }
+  }
+
   /* TEAM ACTIVITY FEED — small timeline of recent audit log entries
      across the whole team. Lives on the dashboard as a dash-block. */
   .dash-team-activity[hidden] { display: none; }
@@ -6468,6 +6591,14 @@
           <summary>Modifier mes liens</summary>
           <div class="profile-socials-form" id="profileSocialsForm"></div>
         </details>
+      </section>
+
+      <section class="profile-section">
+        <header class="profile-section-head">
+          <h2>Badges</h2>
+          <span class="profile-section-meta" id="profileBadgesMeta">—</span>
+        </header>
+        <div class="profile-badges" id="profileBadges"></div>
       </section>
 
       <section class="profile-section">
@@ -8252,6 +8383,9 @@ async function logActivity(entry) {
       metadata: entry.metadata || {},
     });
   } catch (e) { console.warn('[ActivityLog] insert failed:', e); }
+  // After every audit write, re-evaluate the badge catalog. Debounced so
+  // a rapid burst (e.g. toggleTodo loop) results in a single pass.
+  if (typeof _scheduleBadgeEval === 'function') _scheduleBadgeEval(800);
 }
 // Fetch the latest N activity rows for the given user. Falls back to [] on
 // error so callers don't need to guard.
@@ -8380,6 +8514,171 @@ async function renderTeamActivity() {
       }
     });
   }
+}
+
+/* ============================
+   BADGES — gamification layer.
+   Catalogue côté frontend (data-driven), persistence côté Supabase dans
+   public.user_badges. Chaque badge a une rule(stats) qui est évaluée après
+   chaque action significative (logActivity wraps evaluateBadges()).
+
+   BADGE STAT BUNDLE (passed to rule):
+     todosDone        — count of completed todos
+     eventsCreated    — count of events with createdBy.id === me
+     streakDays       — state.streak.days
+     skillsCount      — _currentProfile.skills?.length
+     socialsCount     — non-empty entries in social_links
+     hasAvatar        — boolean
+     hasBio           — boolean
+     hasRole          — role is set + not 'autre'
+     daysSince        — days since profile.created_at / state.user.since
+
+   To add a badge: append to BADGES_CATALOG. No schema change needed.
+   ============================ */
+const BADGES_CATALOG = [
+  // Profile-completion badges
+  { id: 'profile-photo',    icon: '📸', label: 'Visage du projet',         description: 'Tu as ajouté ta photo de profil.',                 rule: s => s.hasAvatar },
+  { id: 'profile-complete', icon: '✨', label: 'Profil complet',           description: 'Photo, bio, rôle, skills — la totale.',           rule: s => s.hasAvatar && s.hasBio && s.hasRole && s.skillsCount >= 3 },
+  { id: 'profile-social',   icon: '🌐', label: 'Connecté',                 description: 'Au moins un lien social ajouté.',                 rule: s => s.socialsCount >= 1 },
+  // Activity badges
+  { id: 'first-todo',       icon: '✓',  label: 'Premier coup',             description: 'Tu as coché ta première tâche.',                  rule: s => s.todosDone >= 1 },
+  { id: 'ten-todos',        icon: '🔟', label: 'Dix taches finies',        description: '10 tâches terminées.',                            rule: s => s.todosDone >= 10 },
+  { id: 'fifty-todos',      icon: '🏆', label: 'Cinquante',                description: '50 tâches terminées. Inarrêtable.',               rule: s => s.todosDone >= 50 },
+  // Event badges
+  { id: 'first-event',      icon: '📅', label: 'Première date',            description: 'Premier événement créé.',                         rule: s => s.eventsCreated >= 1 },
+  { id: 'ten-events',       icon: '🗓️', label: 'Planneur',                 description: '10 événements créés.',                            rule: s => s.eventsCreated >= 10 },
+  // Streak badges
+  { id: 'streak-3',         icon: '🔥', label: 'Trois jours',              description: '3 jours de suite à valider des tâches.',          rule: s => s.streakDays >= 3 },
+  { id: 'streak-7',         icon: '🚀', label: 'Une semaine pleine',       description: '7 jours de streak.',                              rule: s => s.streakDays >= 7 },
+  { id: 'streak-30',        icon: '💎', label: 'Trente jours',             description: '30 jours d\'affilée. Discipline.',                rule: s => s.streakDays >= 30 },
+];
+const BADGES_BY_ID = Object.fromEntries(BADGES_CATALOG.map(b => [b.id, b]));
+
+// Build the stats bundle from current state + profile. Pure compute, no I/O.
+function _buildBadgeStats() {
+  const todos = Array.isArray(state.todos) ? state.todos : [];
+  const events = Array.isArray(state.events) ? state.events : [];
+  const me = (_currentUser && _currentUser.id) || null;
+  const profile = _currentProfile || {};
+  const socials = profile.social_links || {};
+  const socialsCount = Object.values(socials).filter(v => v && String(v).trim()).length;
+  const skills = Array.isArray(profile.skills) ? profile.skills : [];
+  const since = (state.user && state.user.since) || profile.created_at || null;
+  const daysSince = since ? Math.floor((Date.now() - Date.parse(since)) / 86400000) : 0;
+  const roleKey = (typeof getCurrentRoleKey === 'function') ? getCurrentRoleKey() : 'autre';
+  return {
+    todosDone:     todos.filter(t => t && t.done).length,
+    eventsCreated: events.filter(e => e && e.createdBy && e.createdBy.id === me).length,
+    streakDays:    (state.streak && state.streak.days) || 0,
+    skillsCount:   skills.length,
+    socialsCount,
+    hasAvatar:     !!profile.avatar_path,
+    hasBio:        !!(profile.bio && profile.bio.trim()),
+    hasRole:       !!roleKey && roleKey !== 'autre',
+    daysSince,
+  };
+}
+
+// In-memory cache of badges this user has already earned, so we don't
+// re-insert + re-toast the same badge every time evaluateBadges() runs.
+let _earnedBadgeIds = null; // Set<string> or null until first fetch
+async function _loadEarnedBadges() {
+  if (_earnedBadgeIds) return _earnedBadgeIds;
+  if (!sb || !_currentUser) return new Set();
+  try {
+    const { data, error } = await sb.from('user_badges')
+      .select('badge_id')
+      .eq('user_id', _currentUser.id);
+    if (error) throw error;
+    _earnedBadgeIds = new Set((data || []).map(r => r.badge_id));
+  } catch (e) {
+    console.warn('[Badges] load earned failed:', e);
+    _earnedBadgeIds = new Set();
+  }
+  return _earnedBadgeIds;
+}
+
+// Award a badge — INSERT + cache + toast + reveal. Idempotent: re-awarding
+// the same badge is a no-op (unique constraint on user_id+badge_id catches
+// races; cache short-circuits the common path).
+async function awardBadge(badgeId) {
+  const def = BADGES_BY_ID[badgeId];
+  if (!def) return;
+  const earned = await _loadEarnedBadges();
+  if (earned.has(badgeId)) return;
+  earned.add(badgeId); // optimistic — even if insert fails, we don't re-toast in this session
+  if (!sb || !_currentUser) return;
+  try {
+    await sb.from('user_badges').insert({
+      user_id: _currentUser.id,
+      badge_id: badgeId,
+    });
+  } catch (e) {
+    // If it's a 23505 unique violation we silently move on (another tab won).
+    if (!String(e && e.message || e).match(/duplicate|unique/i)) {
+      console.warn('[Badges] insert failed:', e);
+    }
+  }
+  // UX — toast + brief overlay if available
+  if (typeof toast === 'function') toast('🏆 Nouveau badge : ' + def.label);
+  if (typeof haptic === 'function') haptic(30);
+  _showBadgeReveal(def);
+}
+
+function _showBadgeReveal(def) {
+  if (!def) return;
+  // Remove any previous overlay so back-to-back unlocks don't stack
+  document.querySelectorAll('.badge-reveal').forEach(n => n.remove());
+  const overlay = document.createElement('div');
+  overlay.className = 'badge-reveal';
+  overlay.innerHTML = `
+    <div class="badge-reveal-card">
+      <div class="badge-reveal-icon">${escapeHtml(def.icon)}</div>
+      <div class="badge-reveal-eyebrow">Badge débloqué</div>
+      <div class="badge-reveal-label">${escapeHtml(def.label)}</div>
+      <div class="badge-reveal-desc">${escapeHtml(def.description)}</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  // Auto-dismiss
+  setTimeout(() => overlay.classList.add('badge-reveal-fade'), 2200);
+  setTimeout(() => overlay.remove(), 2800);
+}
+
+// Evaluate the catalog against the current stats. Award any rule that newly
+// passes. Skip badges already earned (cache + unique constraint backstop).
+// Debounced caller in _scheduleBadgeEval() coalesces bursts.
+async function evaluateBadges() {
+  if (!sb || !_currentUser) return;
+  const earned = await _loadEarnedBadges();
+  const stats = _buildBadgeStats();
+  for (const b of BADGES_CATALOG) {
+    if (earned.has(b.id)) continue;
+    let passes = false;
+    try { passes = !!b.rule(stats); } catch (e) { /* defensive */ }
+    if (passes) {
+      await awardBadge(b.id);
+    }
+  }
+}
+let _badgeEvalTimer = null;
+function _scheduleBadgeEval(delay) {
+  if (_badgeEvalTimer) clearTimeout(_badgeEvalTimer);
+  _badgeEvalTimer = setTimeout(() => {
+    evaluateBadges().catch(e => console.warn('[Badges] evaluate failed:', e));
+  }, delay || 800);
+}
+
+async function fetchUserBadges(userId) {
+  if (!sb || !userId) return [];
+  try {
+    const { data, error } = await sb.from('user_badges')
+      .select('badge_id, earned_at')
+      .eq('user_id', userId)
+      .order('earned_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  } catch (e) { console.warn('[Badges] fetch failed:', e); return []; }
 }
 
 // Translate common Supabase auth errors to French. Falls back to the original
@@ -12009,6 +12308,8 @@ function renderProfile() {
   renderProfileSkills(vm);
   renderProfileSocials(vm);
   renderProfileNotifs(vm);
+  // Badges — Phase 2B-2: shows the user's earned badges + locked silhouettes.
+  renderProfileBadges(vm);
 
   // Avatar — load from IDB cache, fall back to Supabase Storage
   refreshProfileAvatar(vm).catch(e => console.warn('avatar refresh failed:', e));
@@ -12160,6 +12461,43 @@ async function toggleProfileNotif(key, checked) {
     }
   } catch (e) { console.warn('notif persist failed:', e); }
   if (typeof haptic === 'function') haptic(6);
+}
+
+/* ============================
+   BADGES — render the user's catalog on the profile page.
+   Earned badges show in color; locked ones are silhouettes with a
+   muted hint of the requirement. Eval is triggered on open so any
+   new milestones get awarded immediately.
+   ============================ */
+async function renderProfileBadges(vm) {
+  const container = document.getElementById('profileBadges');
+  const meta = document.getElementById('profileBadgesMeta');
+  if (!container) return;
+  // First, run an eval so opening the profile picks up any new milestones.
+  if (typeof evaluateBadges === 'function') evaluateBadges().catch(() => {});
+  // Then fetch what's earned. Failure → render all as locked.
+  let earnedRows = [];
+  if (vm && vm.userId) {
+    earnedRows = await fetchUserBadges(vm.userId).catch(() => []);
+  }
+  const earnedSet = new Set(earnedRows.map(r => r.badge_id));
+  const earnedAtById = Object.fromEntries(earnedRows.map(r => [r.badge_id, r.earned_at]));
+  const total = BADGES_CATALOG.length;
+  const earnedCount = earnedSet.size;
+  if (meta) meta.textContent = earnedCount + ' / ' + total + ' débloqués';
+  container.innerHTML = BADGES_CATALOG.map(b => {
+    const isEarned = earnedSet.has(b.id);
+    const earnedAt = earnedAtById[b.id];
+    const when = (isEarned && earnedAt) ? _formatRelativeShort(earnedAt) : '';
+    return `
+      <div class="profile-badge ${isEarned ? 'is-earned' : 'is-locked'}" title="${escapeHtml(b.description)}">
+        <div class="profile-badge-icon">${escapeHtml(b.icon)}</div>
+        <div class="profile-badge-label">${escapeHtml(b.label)}</div>
+        <div class="profile-badge-desc">${escapeHtml(b.description)}</div>
+        ${isEarned ? `<div class="profile-badge-when">${escapeHtml(when || 'Débloqué')}</div>` : '<div class="profile-badge-when">Verrouillé</div>'}
+      </div>
+    `;
+  }).join('');
 }
 
 function renderProfileStats(vm) {
