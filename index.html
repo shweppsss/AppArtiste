@@ -1207,6 +1207,75 @@
     pointer-events: none;
   }
   /* Floating clone that follows the pointer */
+  /* Initial avatar shown on every event pill (month + week views) and in the
+     detail-pane credit block. Tiny circle with the creator's first initial,
+     background-colored from a hash of their user-id. */
+  .cal-event-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    font-size: 8.5px;
+    font-weight: 700;
+    color: #fff;
+    margin-right: 4px;
+    vertical-align: -2px;
+    letter-spacing: 0;
+    text-shadow: 0 0 1px rgba(0,0,0,0.3);
+  }
+  .cal-event-avatar-lg {
+    width: 22px;
+    height: 22px;
+    font-size: 11.5px;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+  /* Week-view pill places the avatar in its own row so it doesn't push the
+     time/title around when space is tight. */
+  .cal-week-event-actor {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+  }
+  .cal-week-event { padding-right: 22px; }
+
+  /* Credit block at the top of the event detail pane. */
+  .event-credit-block {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: var(--space-3);
+    padding: 10px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+  .event-credit-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--text-soft);
+  }
+  .event-credit-label {
+    flex-shrink: 0;
+    width: 90px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+  .event-credit-actor {
+    display: inline-flex;
+    align-items: center;
+    color: var(--text);
+  }
+  .event-credit-actor .event-credit-text { display: inline; }
+  .event-credit-time { color: var(--text-dim); font-weight: 400; }
+
   .cal-event-ghost {
     opacity: 0.92;
     transform: scale(1.06);
@@ -7892,8 +7961,11 @@ function renderWeekView() {
       const heightMins = 60; // default 1h slot (no duration field yet)
       const height = (heightMins / 60) * HOUR_HEIGHT - 4;
       const timeLabel = allDay ? 'Toute la journée' : (e.time ? formatEventTime(e.time) : '');
+      const tip = _eventTooltip(e);
+      const avatar = e.createdBy ? _eventActorAvatarHTML(e.createdBy) : '';
       html += `<div class="cal-week-event" data-type="${escapeHtml(e.type)}" data-event-id="${escapeHtml(e.id)}"
-                    style="top:${top + 2}px; height:${height}px;">
+                    style="top:${top + 2}px; height:${height}px;"${tip ? ` title="${escapeHtml(tip)}"` : ''}>
+        ${avatar ? `<div class="cal-week-event-actor">${avatar}</div>` : ''}
         ${timeLabel ? `<div class="cal-week-event-time">${timeLabel}</div>` : ''}
         <div class="cal-week-event-title">${escapeHtml(e.title)}</div>
       </div>`;
@@ -8030,6 +8102,7 @@ function _onWeekEventPointerUp(e) {
     if (ev.date === targetDate && ev.time === newTime) return;
     ev.date = targetDate;
     ev.time = newTime;
+    _stampEventUpdate(ev);
     save();
     renderCalendar();
     renderDashboard();
@@ -8099,7 +8172,11 @@ function renderMonthView() {
     html += `
       <div class="cal-cell ${isToday ? 'today' : ''}" data-date="${iso}">
         <div class="cal-day">${day}</div>
-        ${events.sort((a,b) => (a.time||'99:99').localeCompare(b.time||'99:99')).map(e => `<div class="cal-event" data-type="${escapeHtml(e.type)}" data-event-id="${escapeHtml(e.id)}">${e.time ? `<strong>${formatEventTime(e.time)}</strong> ` : ''}${escapeHtml(e.title)}</div>`).join('')}
+        ${events.sort((a,b) => (a.time||'99:99').localeCompare(b.time||'99:99')).map(e => {
+          const tip = _eventTooltip(e);
+          const avatar = e.createdBy ? _eventActorAvatarHTML(e.createdBy) : '';
+          return `<div class="cal-event" data-type="${escapeHtml(e.type)}" data-event-id="${escapeHtml(e.id)}"${tip ? ` title="${escapeHtml(tip)}"` : ''}>${avatar}${e.time ? `<strong>${formatEventTime(e.time)}</strong> ` : ''}${escapeHtml(e.title)}</div>`;
+        }).join('')}
       </div>
     `;
   }
@@ -8221,6 +8298,7 @@ function _onCalEventPointerUp(e) {
     const ev = state.events.find(x => x.id === id);
     if (!ev || ev.date === dropDate) return;
     ev.date = dropDate;
+    _stampEventUpdate(ev);
     save();
     renderCalendar();
     renderDashboard();
@@ -8305,6 +8383,96 @@ function closeEventModal() {
   document.getElementById('eventModal').classList.remove('open');
 }
 
+/* EVENT ATTRIBUTION
+   Snapshot of the authoring user attached to events at every mutation.
+   Source: _currentUser (Supabase session) + _currentProfile (display name).
+   SECURITY NOTE: events live in workspace.state JSONB, which any authenticated
+   user can rewrite. So this attribution is *display-only* — a malicious user
+   could forge createdBy. Server-side enforcement would require migrating
+   events to the relational table (schema exists at supabase/001, dormant).
+   Acceptable for the current internal-team scope. */
+function _currentActor() {
+  const id = (_currentUser && _currentUser.id) || null;
+  const name = (_currentProfile && _currentProfile.name)
+    || (_currentUser && _currentUser.email && _currentUser.email.split('@')[0])
+    || 'Anonyme';
+  return { id, name };
+}
+function _stampEventCreate(ev) {
+  const actor = _currentActor();
+  const now = new Date().toISOString();
+  ev.createdBy = actor;
+  ev.createdAt = now;
+  ev.updatedBy = actor;
+  ev.updatedAt = now;
+  return ev;
+}
+function _stampEventUpdate(ev) {
+  if (!ev) return ev;
+  ev.updatedBy = _currentActor();
+  ev.updatedAt = new Date().toISOString();
+  return ev;
+}
+// First letter of the actor's name, uppercase. Used in the round avatar
+// circles on event pills. Returns '?' when no actor info is attached
+// (legacy events created before this PR shipped).
+function _actorInitial(actor) {
+  if (!actor || !actor.name) return '?';
+  return actor.name.trim().charAt(0).toUpperCase() || '?';
+}
+// Stable color from a user-id so a given user always gets the same avatar
+// color across reloads. Hash → 0-359 hue, fixed S/L for legibility on the
+// dark surface palette.
+function _actorColor(actor) {
+  const seed = (actor && actor.id) || (actor && actor.name) || 'anon';
+  let h = 5381;
+  for (let i = 0; i < seed.length; i++) h = ((h * 33) ^ seed.charCodeAt(i)) >>> 0;
+  return 'hsl(' + (h % 360) + ', 62%, 55%)';
+}
+// Short relative date like "il y a 2j" / "à l'instant" / "hier" for the
+// detail-pane credit block. Falls back to the absolute date if the input
+// isn't a parseable ISO string.
+function _formatRelativeShort(iso) {
+  if (!iso) return '';
+  const t = Date.parse(iso);
+  if (isNaN(t)) return '';
+  const diffSec = Math.floor((Date.now() - t) / 1000);
+  if (diffSec < 45) return 'à l\'instant';
+  if (diffSec < 90) return 'il y a 1 min';
+  const min = Math.floor(diffSec / 60);
+  if (min < 60) return 'il y a ' + min + ' min';
+  if (min < 120) return 'il y a 1 h';
+  const h = Math.floor(min / 60);
+  if (h < 24) return 'il y a ' + h + ' h';
+  const d = Math.floor(h / 24);
+  if (d < 2) return 'hier';
+  if (d < 7) return 'il y a ' + d + ' j';
+  // Beyond a week → absolute short date
+  return new Date(t).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: t < Date.now() - 365*24*3600*1000 ? 'numeric' : undefined });
+}
+// HTML for the small circular avatar with the user's first initial.
+// `extraClass` lets the caller tag it with a size variant.
+function _eventActorAvatarHTML(actor, extraClass) {
+  if (!actor) return '';
+  const initial = _actorInitial(actor);
+  const color = _actorColor(actor);
+  const cls = 'cal-event-avatar' + (extraClass ? ' ' + extraClass : '');
+  const title = actor.name ? escapeHtml(actor.name) : '';
+  return `<span class="${cls}" style="background:${color}" title="${title}">${escapeHtml(initial)}</span>`;
+}
+// Full tooltip line for the pill — shown via the title attribute.
+// "Créé par Chouaib • il y a 2 j · Modifié par Degzzy • à l'instant"
+function _eventTooltip(ev) {
+  const parts = [];
+  if (ev.createdBy && ev.createdBy.name) {
+    parts.push('Créé par ' + ev.createdBy.name + (ev.createdAt ? ' · ' + _formatRelativeShort(ev.createdAt) : ''));
+  }
+  if (ev.updatedBy && ev.updatedAt && ev.updatedAt !== ev.createdAt) {
+    parts.push('Modifié par ' + (ev.updatedBy.name || '—') + ' · ' + _formatRelativeShort(ev.updatedAt));
+  }
+  return parts.join(' — ');
+}
+
 function saveEvent() {
   const title = document.getElementById('eventTitle').value.trim();
   const date = document.getElementById('eventDate').value;
@@ -8317,8 +8485,11 @@ function saveEvent() {
   if (editingEventId) {
     const e = state.events.find(x => x.id === editingEventId);
     Object.assign(e, { title, date, time, type, location, with: withWho, notes });
+    _stampEventUpdate(e);
   } else {
-    state.events.push({ id: 'e' + Date.now(), title, date, time, type, location, with: withWho, notes });
+    const ev = { id: 'e' + Date.now(), title, date, time, type, location, with: withWho, notes };
+    _stampEventCreate(ev);
+    state.events.push(ev);
   }
   save();
   closeEventModal();
@@ -9974,10 +10145,23 @@ function detailEventHTML(e) {
   const relatedTrack = state.tracks.find(t => e.title.toLowerCase().includes(t.name.toLowerCase()) && t.name.length > 3);
   const eyebrowParts = [typeLabel(e.type), formatDateLong(e.date)];
   if (e.time) eyebrowParts.push(formatEventTime(e.time));
+  // Credit block — shows creator + last editor with absolute + relative times.
+  // Suppresses the "Modifié par" line when no edit ever happened after creation.
+  let creditHtml = '';
+  if (e.createdBy || e.updatedBy) {
+    const created = e.createdBy ? `${_eventActorAvatarHTML(e.createdBy, 'cal-event-avatar-lg')} <span class="event-credit-text"><strong>${escapeHtml(e.createdBy.name || '—')}</strong>${e.createdAt ? ` <span class="event-credit-time">· ${_formatRelativeShort(e.createdAt)}</span>` : ''}</span>` : '';
+    const editedDifferent = e.updatedBy && e.updatedAt && e.updatedAt !== e.createdAt;
+    const edited = editedDifferent ? `${_eventActorAvatarHTML(e.updatedBy, 'cal-event-avatar-lg')} <span class="event-credit-text"><strong>${escapeHtml(e.updatedBy.name || '—')}</strong>${e.updatedAt ? ` <span class="event-credit-time">· ${_formatRelativeShort(e.updatedAt)}</span>` : ''}</span>` : '';
+    creditHtml = `<div class="event-credit-block">
+      ${created ? `<div class="event-credit-row"><span class="event-credit-label">Créé par</span><div class="event-credit-actor">${created}</div></div>` : ''}
+      ${edited ? `<div class="event-credit-row"><span class="event-credit-label">Modifié par</span><div class="event-credit-actor">${edited}</div></div>` : ''}
+    </div>`;
+  }
   return `
     <div class="detail-hero">
       <div class="detail-eyebrow">${eyebrowParts.join(' · ')}</div>
       <div class="detail-title" contenteditable="true" onblur="updateEventField('${e.id}','title',this.innerText)">${escapeHtml(e.title)}</div>
+      ${creditHtml}
       ${e.location || e.with ? `<div class="detail-meta-row">
         ${e.location ? `<div class="detail-meta-pill">📍 <strong>${escapeHtml(e.location)}</strong></div>` : ''}
         ${e.with ? `<div class="detail-meta-pill">👤 <strong>${escapeHtml(e.with)}</strong></div>` : ''}
@@ -10047,6 +10231,7 @@ function updateEventField(id, field, value) {
   const e = state.events.find(x => x.id === id);
   if (!e) return;
   e[field] = value;
+  _stampEventUpdate(e);
   save();
 }
 function deleteEventDetail(id) {
