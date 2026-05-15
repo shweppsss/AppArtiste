@@ -5958,7 +5958,13 @@
     background: rgba(255,255,255,0.07);
     border-radius: 2px;
     overflow: hidden;
+    cursor: pointer;
+    /* Enlarge the touch target without affecting the visual height —
+       8px above the visible bar so a fingertip lands easily on a phone. */
+    padding-top: 8px;
+    margin-top: -8px;
   }
+  .mini-player-scrubber:active { background: rgba(255,255,255,0.14); }
   .mini-player-scrubber-fill {
     height: 100%;
     background: var(--accent);
@@ -7630,18 +7636,77 @@ const MiniPlayer = (() => {
       if (!audio.duration) return;
       fill.style.width = ((audio.currentTime / audio.duration) * 100).toFixed(2) + '%';
     });
+    // Tap the scrubber to seek. The hit area is the whole scrubber wrapper so
+    // even a 4px-tall fill is comfortably reachable. We pause→seek→resume to
+    // avoid the brief blip iOS gives if you reposition during active playback.
+    const scrubberWrap = el.querySelector('.mini-player-scrubber');
+    if (scrubberWrap) {
+      scrubberWrap.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!audio.duration || isNaN(audio.duration)) return;
+        const rect = scrubberWrap.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        const wasPlaying = !audio.paused;
+        if (wasPlaying) audio.pause();
+        try { audio.currentTime = ratio * audio.duration; } catch (err) {}
+        if (wasPlaying) audio.play().catch(() => {});
+      });
+    }
+    // Media Session API — surfaces title/artist/cover on the iOS lock screen,
+    // Control Center, Apple Watch, and CarPlay. Hardware play/pause keys from
+    // AirPods / Bluetooth headphones route to the same handlers as the on-screen
+    // buttons. mediaSession is undefined on older Safari — guarded for safety.
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.setActionHandler('play',  () => { audio.play().catch(() => {}); });
+        navigator.mediaSession.setActionHandler('pause', () => { audio.pause(); });
+        navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+          const skip = (details && details.seekOffset) || 10;
+          try { audio.currentTime = Math.max(0, audio.currentTime - skip); } catch (e) {}
+        });
+        navigator.mediaSession.setActionHandler('seekforward', (details) => {
+          const skip = (details && details.seekOffset) || 10;
+          try { audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + skip); } catch (e) {}
+        });
+        navigator.mediaSession.setActionHandler('seekto', (details) => {
+          if (details && typeof details.seekTime === 'number') {
+            try { audio.currentTime = details.seekTime; } catch (e) {}
+          }
+        });
+      } catch (e) { /* no-op — browser without all action handlers */ }
+    }
     initialized = true;
   }
   function show(track, audioUrl, coverUrl) {
     init();
     if (!el || !track) return;
     currentTrackId = track.id;
-    titleEl.textContent = track.name || 'Sans titre';
+    const title = track.name || 'Sans titre';
     const statusFn = typeof statusLabel === 'function' ? statusLabel : (() => '');
-    subEl.textContent = [statusFn(track.status), track.feat].filter(Boolean).join(' · ') || 'Noname';
+    const subtitle = [statusFn(track.status), track.feat].filter(Boolean).join(' · ') || 'Noname';
+    titleEl.textContent = title;
+    subEl.textContent = subtitle;
     coverBtn.style.backgroundImage = coverUrl ? `url('${coverUrl}')` : 'none';
     if (audio.src !== audioUrl) audio.src = audioUrl;
     el.hidden = false;
+    // Surface metadata to the iOS lock screen / Control Center / Apple Watch /
+    // CarPlay. The cover is a blob: URL inside our origin → it works as an
+    // artwork source. Falls back to a single 96×96 entry if no cover yet.
+    if ('mediaSession' in navigator) {
+      try {
+        const artwork = coverUrl ? [
+          { src: coverUrl, sizes: '96x96',   type: 'image/png' },
+          { src: coverUrl, sizes: '192x192', type: 'image/png' },
+          { src: coverUrl, sizes: '512x512', type: 'image/png' },
+        ] : [];
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title,
+          artist: 'Degzzy',
+          album: subtitle,
+          artwork,
+        });
+      } catch (e) { /* MediaMetadata unsupported on older browsers */ }
+    }
     audio.play().catch(() => {/* user gesture required on some browsers */});
   }
   function hide() {
@@ -10089,11 +10154,32 @@ async function enterApp() {
     if (typeof startNotificationDelivery === 'function') startNotificationDelivery();
     // Sentry — tag the user so issues are attributable. No-op if Sentry isn't initialized.
     if (typeof identifySentryUser === 'function') identifySentryUser();
+    // Pre-warm the audio cache so the first tap on a track's play button hits
+    // the sync path in playTrackInMini and iOS Safari accepts audio.play()
+    // inside the user-gesture task. Otherwise the first tap after a cold load
+    // may silently fail and require a second tap.
+    if (typeof prewarmAudioCache === 'function') prewarmAudioCache();
     const name = _currentProfile?.name || 'toi';
     toast(`Bienvenue, ${name}.`);
     haptic(20);
     setTimeout(() => confetti(60), 200);
   });
+}
+
+// Warms _audioCache for every track that has an idbAudio marker so subsequent
+// playTrackInMini calls can resolve the URL synchronously. Idle-scheduled to
+// avoid competing with the boot render. Idempotent — cache hit returns
+// immediately from getTrackAudioUrl.
+function prewarmAudioCache() {
+  const tracks = (state.tracks || []).filter(t => t && (t.idbAudio || (t.audio && typeof t.audio === 'string' && t.audio.startsWith('data:'))));
+  if (!tracks.length) return;
+  const tick = () => {
+    for (const t of tracks) {
+      getTrackAudioUrl(t.id).catch(() => {});
+    }
+  };
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(tick, { timeout: 2000 });
+  else setTimeout(tick, 600);
 }
 
 function saveSetup(ev) {
