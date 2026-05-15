@@ -1870,6 +1870,29 @@
     border-bottom: 1px solid var(--border-soft);
   }
   .profile-notif-row:last-child { border-bottom: none; }
+  .notif-perm-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    font-size: 13px;
+    color: var(--text);
+  }
+  .notif-perm-banner.notif-perm-ok {
+    border-color: rgba(74, 200, 142, 0.45);
+    background: rgba(74, 200, 142, 0.08);
+  }
+  .notif-perm-banner.notif-perm-warn {
+    border-color: rgba(229, 138, 90, 0.5);
+    background: rgba(229, 138, 90, 0.08);
+    color: var(--text-soft);
+  }
+  .notif-perm-banner .btn-sm { padding: 6px 12px; font-size: 12px; }
   .profile-notif-text strong {
     font: var(--font-body);
     color: var(--text);
@@ -9643,6 +9666,7 @@ async function enterApp() {
     renderAll();
     subscribeToWorkspaceRealtime();
     if (typeof subscribeToPresenceRealtime === 'function') subscribeToPresenceRealtime();
+    if (typeof startNotificationDelivery === 'function') startNotificationDelivery();
     const name = _currentProfile?.name || 'toi';
     toast(`Bienvenue, ${name}.`);
     haptic(20);
@@ -13064,7 +13088,7 @@ function renderProfileNotifs(vm) {
   const container = document.getElementById('profileNotifList');
   if (!container) return;
   const prefs = vm.notifs || {};
-  container.innerHTML = NOTIF_PREFS.map(n => `
+  container.innerHTML = `<div id="notifPermBanner"></div>` + NOTIF_PREFS.map(n => `
     <div class="profile-notif-row">
       <div class="profile-notif-text">
         <strong>${escapeHtml(n.title)}</strong>
@@ -13076,6 +13100,10 @@ function renderProfileNotifs(vm) {
       </label>
     </div>
   `).join('');
+  // Banner is data-driven from the current Notification.permission so the
+  // user sees the CTA the first time, and the "enabled" confirmation after.
+  const banner = document.getElementById('notifPermBanner');
+  if (banner) renderNotifPermBanner(banner);
 }
 async function toggleProfileNotif(key, checked) {
   const vm = _getProfileViewModel();
@@ -13087,6 +13115,236 @@ async function toggleProfileNotif(key, checked) {
     }
   } catch (e) { console.warn('notif persist failed:', e); }
   if (typeof haptic === 'function') haptic(6);
+  // Turning on a pref while permission is still 'default' is the moment we ask.
+  // Doing it on toggle (not page load) avoids the dreaded immediate-on-load prompt.
+  if (checked && typeof requestNotificationPermission === 'function') {
+    requestNotificationPermission();
+  }
+}
+
+/* ============================
+   NOTIFICATION DELIVERY — in-tab browser Notifications driven by the same
+   NOTIF_PREFS toggles. No push, no backend: while a tab is open we run a
+   1-minute checker that fires `new Notification()` for matching events.
+   Dedup is localStorage-based with a 36h TTL so a release doesn't notify
+   on every reload. The four pref keys map to: releases (J-7 / J-3 / J-0),
+   deadlines (24h before any todo deadline or milestone event), mentions
+   (a teammate posts to activity_log), weeklyDigest (Monday 09:00 once/week).
+   ============================ */
+const NOTIF_CHECK_INTERVAL_MS = 60_000;
+const NOTIF_DEDUPE_TTL_MS = 36 * 3600 * 1000;
+const NOTIF_DEDUPE_KEY = 'noname_notif_seen_v1';
+
+function _notifPermission() {
+  if (typeof Notification === 'undefined') return 'unsupported';
+  return Notification.permission; // 'default' | 'granted' | 'denied'
+}
+
+async function requestNotificationPermission() {
+  if (typeof Notification === 'undefined') return 'unsupported';
+  if (Notification.permission === 'granted' || Notification.permission === 'denied') {
+    return Notification.permission;
+  }
+  try {
+    const res = await Notification.requestPermission();
+    return res;
+  } catch (e) {
+    console.warn('Notification permission request failed:', e);
+    return 'denied';
+  } finally {
+    // Reflect the new state in the profile UI without a full re-render.
+    const banner = document.getElementById('notifPermBanner');
+    if (banner) renderNotifPermBanner(banner);
+  }
+}
+
+function _notifSeenMap() {
+  try {
+    const raw = localStorage.getItem(NOTIF_DEDUPE_KEY);
+    if (!raw) return {};
+    const map = JSON.parse(raw);
+    const now = Date.now();
+    let mutated = false;
+    for (const k in map) {
+      if (now - map[k] > NOTIF_DEDUPE_TTL_MS) { delete map[k]; mutated = true; }
+    }
+    if (mutated) localStorage.setItem(NOTIF_DEDUPE_KEY, JSON.stringify(map));
+    return map;
+  } catch (e) { return {}; }
+}
+function _notifMarkSeen(key) {
+  try {
+    const map = _notifSeenMap();
+    map[key] = Date.now();
+    localStorage.setItem(NOTIF_DEDUPE_KEY, JSON.stringify(map));
+  } catch (e) {}
+}
+
+function _canNotify(prefKey) {
+  if (_notifPermission() !== 'granted') return false;
+  const prefs = (_currentProfile && _currentProfile.notifications_prefs) || {};
+  return !!prefs[prefKey];
+}
+
+function _notifyOnce(dedupeKey, title, options) {
+  if (typeof Notification === 'undefined') return false;
+  if (Notification.permission !== 'granted') return false;
+  const seen = _notifSeenMap();
+  if (seen[dedupeKey]) return false;
+  try {
+    const n = new Notification(title, Object.assign({
+      icon: './icon-192.png',
+      badge: './icon-192.png',
+      silent: false,
+    }, options || {}));
+    // Clicking the notification jumps back to the tab.
+    n.onclick = () => { try { window.focus(); n.close(); } catch (e) {} };
+    _notifMarkSeen(dedupeKey);
+    return true;
+  } catch (e) {
+    console.warn('Notification.fire failed:', e);
+    return false;
+  }
+}
+
+// Release events — fire at J-7, J-3, and on the day itself. The dedupe key
+// is per-release-per-stage so each stage notifies exactly once.
+function _checkReleasesNotifs(now) {
+  if (!_canNotify('releases')) return;
+  const todayIso = _isoDate(now);
+  const events = Array.isArray(state.events) ? state.events : [];
+  for (const ev of events) {
+    if (!ev || ev.type !== 'release' || !ev.date) continue;
+    const days = _diffDays(todayIso, ev.date);
+    let stage = null;
+    if (days === 7) stage = 'J7';
+    else if (days === 3) stage = 'J3';
+    else if (days === 0) stage = 'J0';
+    if (!stage) continue;
+    const dedupe = `release:${ev.id}:${stage}`;
+    const label = stage === 'J0' ? "Aujourd'hui" : (stage === 'J3' ? 'Dans 3 jours' : 'Dans 7 jours');
+    _notifyOnce(dedupe, `Release — ${ev.title}`, {
+      body: `${label}. Préparez le lancement.`,
+      tag: dedupe,
+    });
+  }
+}
+
+// Deadlines — todos with a due date hitting in the next 24h, plus any
+// milestone-type event hitting in 24h.
+function _checkDeadlinesNotifs(now) {
+  if (!_canNotify('deadlines')) return;
+  const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowIso = _isoDate(tomorrow);
+  const todayIso = _isoDate(now);
+  const todos = Array.isArray(state.todos) ? state.todos : [];
+  for (const t of todos) {
+    if (!t || t.done) continue;
+    const due = t.dueDate || t.due;
+    if (!due) continue;
+    if (due !== todayIso && due !== tomorrowIso) continue;
+    const dedupe = `todo:${t.id}:${due}`;
+    const when = due === todayIso ? "aujourd'hui" : 'demain';
+    _notifyOnce(dedupe, `Échéance ${when}`, { body: t.text || t.title || 'Tâche à clôturer.', tag: dedupe });
+  }
+  const events = Array.isArray(state.events) ? state.events : [];
+  for (const ev of events) {
+    if (!ev || ev.type !== 'milestone' || !ev.date) continue;
+    if (ev.date !== todayIso && ev.date !== tomorrowIso) continue;
+    const dedupe = `milestone:${ev.id}:${ev.date}`;
+    const when = ev.date === todayIso ? "aujourd'hui" : 'demain';
+    _notifyOnce(dedupe, `Jalon ${when}`, { body: ev.title || 'Jalon stratégique.', tag: dedupe });
+  }
+}
+
+// Mentions — proxy: a new activity_log row created by someone other than me
+// in the last 5 minutes. (Real @mentions are out of scope for this round.)
+async function _checkMentionsNotifs() {
+  if (!_canNotify('mentions')) return;
+  if (!sb || !_currentUser || !_currentUser.id) return;
+  const sinceIso = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  try {
+    const { data, error } = await sb
+      .from('activity_log')
+      .select('id, actor_id, actor_name, kind, subject_title, created_at')
+      .gt('created_at', sinceIso)
+      .neq('actor_id', _currentUser.id)
+      .order('created_at', { ascending: false })
+      .limit(5);
+    if (error || !Array.isArray(data)) return;
+    for (const row of data) {
+      const dedupe = `mention:${row.id}`;
+      const actor = row.actor_name || 'Quelqu\'un';
+      const body = `${actor} → ${row.subject_title || row.kind}`;
+      _notifyOnce(dedupe, 'Nouvelle activité équipe', { body, tag: dedupe });
+    }
+  } catch (e) { /* offline — no-op */ }
+}
+
+// Weekly digest — Monday 09:00 local time, once per ISO week.
+function _checkWeeklyDigestNotif(now) {
+  if (!_canNotify('weeklyDigest')) return;
+  if (now.getDay() !== 1) return; // 1 = Monday
+  if (now.getHours() < 9) return;
+  // ISO week dedupe key — same week fires only once.
+  const dedupe = `weekly:${_isoDate(_getMondayOf(now))}`;
+  const eventsThisWeek = (state.events || []).filter(e => {
+    if (!e || !e.date) return false;
+    const d = _diffDays(_isoDate(now), e.date);
+    return d >= 0 && d < 7;
+  }).length;
+  const todosOpen = (state.todos || []).filter(t => t && !t.done).length;
+  _notifyOnce(dedupe, 'Récap de la semaine', {
+    body: `${eventsThisWeek} évènements à venir · ${todosOpen} tâches ouvertes`,
+    tag: dedupe,
+  });
+}
+
+function _runNotificationChecks() {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+  if (_notifPermission() !== 'granted') return;
+  const now = new Date();
+  _checkReleasesNotifs(now);
+  _checkDeadlinesNotifs(now);
+  _checkMentionsNotifs(); // async, fire-and-forget
+  _checkWeeklyDigestNotif(now);
+}
+
+let _notifLoopHandle = null;
+function startNotificationDelivery() {
+  if (_notifLoopHandle) return; // idempotent
+  _notifLoopHandle = setInterval(_runNotificationChecks, NOTIF_CHECK_INTERVAL_MS);
+  // Run once immediately on start so reload doesn't miss a hit that fell during downtime.
+  setTimeout(_runNotificationChecks, 3000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') _runNotificationChecks();
+  });
+}
+
+// Permission banner UI — rendered above the notif toggles when permission is
+// 'default' (CTA to enable) or 'denied' (explainer). Hidden when 'granted'.
+function renderNotifPermBanner(container) {
+  if (!container) return;
+  const perm = _notifPermission();
+  if (perm === 'unsupported') {
+    container.innerHTML = `<div class="notif-perm-banner notif-perm-warn">Notifications non supportées sur ce navigateur.</div>`;
+    return;
+  }
+  if (perm === 'granted') {
+    container.innerHTML = `<div class="notif-perm-banner notif-perm-ok">✅ Notifications activées sur cet appareil.</div>`;
+    return;
+  }
+  if (perm === 'denied') {
+    container.innerHTML = `<div class="notif-perm-banner notif-perm-warn">🚫 Notifications bloquées. Active-les depuis les réglages du navigateur pour cette page.</div>`;
+    return;
+  }
+  // 'default' — show CTA
+  container.innerHTML = `
+    <div class="notif-perm-banner">
+      <div>Active les notifications navigateur pour recevoir releases, deadlines et mentions.</div>
+      <button class="btn btn-primary btn-sm" onclick="requestNotificationPermission()" type="button">Activer</button>
+    </div>
+  `;
 }
 
 /* ============================
