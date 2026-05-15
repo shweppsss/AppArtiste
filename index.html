@@ -8690,6 +8690,73 @@ function _presenceAfterRender() {
    (migration not applied) the catch swallows the error and the page keeps
    working as before with the derived feed.
    ============================ */
+/* ============================
+   CLIENT-SIDE RATE LIMITING — defensive token-bucket for actions that hit
+   Supabase. Caps runaway bursts (e.g. UI bug firing the same insert 200×
+   per render) without changing the happy-path behaviour. Buckets are
+   in-memory by default; the auth bucket additionally persists to
+   localStorage so a brute-force attempt survives a reload.
+   ============================ */
+const _rateLimits = new Map();
+function checkRateLimit(key, maxPerMinute) {
+  const now = Date.now();
+  const windowStart = now - 60_000;
+  const recent = (_rateLimits.get(key) || []).filter(ts => ts > windowStart);
+  if (recent.length >= maxPerMinute) {
+    _rateLimits.set(key, recent);
+    return false;
+  }
+  recent.push(now);
+  _rateLimits.set(key, recent);
+  return true;
+}
+
+// Auth-specific rate limit — persisted in localStorage so it survives reload.
+// Caps at 5 failed sign-ins per 5 minutes per email. Supabase enforces its
+// own server-side limit; this is defence in depth + clearer UX.
+const AUTH_LOCKOUT_KEY = 'noname_auth_lockout_v1';
+const AUTH_MAX_ATTEMPTS = 5;
+const AUTH_LOCKOUT_WINDOW_MS = 5 * 60 * 1000;
+function _readAuthLockout() {
+  try { return JSON.parse(localStorage.getItem(AUTH_LOCKOUT_KEY) || '{}'); }
+  catch (e) { return {}; }
+}
+function _writeAuthLockout(map) {
+  try { localStorage.setItem(AUTH_LOCKOUT_KEY, JSON.stringify(map)); } catch (e) {}
+}
+// Returns null when the email can attempt a sign-in, otherwise the # of
+// seconds the caller should wait before retrying.
+function authLockoutRemaining(email) {
+  if (!email) return null;
+  const map = _readAuthLockout();
+  const entry = map[email.toLowerCase()];
+  if (!entry || !Array.isArray(entry.fails)) return null;
+  const now = Date.now();
+  const recent = entry.fails.filter(ts => now - ts < AUTH_LOCKOUT_WINDOW_MS);
+  if (recent.length >= AUTH_MAX_ATTEMPTS) {
+    const oldest = Math.min(...recent);
+    return Math.max(1, Math.ceil((AUTH_LOCKOUT_WINDOW_MS - (now - oldest)) / 1000));
+  }
+  return null;
+}
+function recordAuthFailure(email) {
+  if (!email) return;
+  const map = _readAuthLockout();
+  const k = email.toLowerCase();
+  const now = Date.now();
+  const existing = (map[k] && Array.isArray(map[k].fails)) ? map[k].fails : [];
+  const recent = existing.filter(ts => now - ts < AUTH_LOCKOUT_WINDOW_MS);
+  recent.push(now);
+  map[k] = { fails: recent };
+  _writeAuthLockout(map);
+}
+function clearAuthFailures(email) {
+  if (!email) return;
+  const map = _readAuthLockout();
+  delete map[email.toLowerCase()];
+  _writeAuthLockout(map);
+}
+
 const ACTIVITY_KINDS = {
   'todo_done':       { icon: '✓', label: 'A terminé une tâche' },
   'todo_created':    { icon: '+', label: 'A créé une tâche' },
@@ -8699,6 +8766,12 @@ const ACTIVITY_KINDS = {
 };
 async function logActivity(entry) {
   if (!sb || !_currentUser || !entry || !entry.kind) return;
+  // Defense against runaway loops (e.g. a UI bug firing this on every render).
+  // 30 writes/min/user is generous — normal usage tops out around 5-10/min.
+  if (!checkRateLimit('activity:' + _currentUser.id, 30)) {
+    console.warn('[RateLimit] activity_log skipped — limit 30/min hit');
+    return;
+  }
   try {
     await sb.from('activity_log').insert({
       user_id: _currentUser.id,
@@ -9080,15 +9153,27 @@ async function signInUser(ev) {
   const email = document.getElementById('signInEmail').value.trim();
   const password = document.getElementById('signInPassword').value;
   const btn = document.getElementById('signInButton');
+  // Client-side lockout — 5 failed attempts within 5 minutes = locked.
+  // Supabase enforces its own limits server-side; this is a clearer UX so the
+  // user knows why their attempt is being throttled.
+  const lockout = authLockoutRemaining(email);
+  if (lockout) {
+    const mins = Math.ceil(lockout / 60);
+    toast('Trop de tentatives. Réessaie dans ~' + mins + ' min.');
+    haptic(60);
+    return;
+  }
   btn.classList.add('auth-loading');
   btn.disabled = true;
   try {
     const { data, error } = await sb.auth.signInWithPassword({ email, password });
     if (error) throw error;
+    clearAuthFailures(email);
     _currentUser = data.user;
     await loadProfileFromCloud();
     await postAuthFlow();
   } catch (e) {
+    recordAuthFailure(email);
     toast('Connexion impossible : ' + mapAuthError(e));
     haptic(60);
     const card = document.querySelector('.auth-card');
