@@ -7614,28 +7614,61 @@ function renderDashboard() {
     phaseBox.onclick = () => { if (phaseIdx >= 0) openDetail('phase', phaseIdx); };
   }
 
-  /* URGENT — inline, hidden si vide */
-  const urgentTodos = (state.todos || []).filter(t => t.urgent && !t.done).slice(0, 4);
+  /* URGENT — filtered by the viewer's role.
+     Pipeline:
+       1. drop completed
+       2. apply isTodoOnDashboard(todo, roleKey) — keeps role-relevant work
+          AND every 'critique' todo regardless of role (we never hide a P0)
+       3. sort: critique > urgent > important > normal, then by due date asc,
+          then completed last
+       4. cap to 4 to keep the band compact
+     Header copy adapts:
+       - manager/autre  → "Tâches à traiter en priorité" (general)
+       - role-specific  → "Pour toi · {RoleLabel}" so the user instantly
+         knows the list is scoped to them. */
+  const _roleKey = getCurrentRoleKey();
+  const _role = ROLE_BY_KEY[_roleKey] || ROLE_BY_KEY['autre'];
+  const _priorityRank = { critique: 0, urgent: 1, important: 2, normal: 3 };
+  const dashboardTodosAll = (state.todos || []).filter(t => t && !t.done && isTodoOnDashboard(t, _roleKey));
+  const urgentTodos = dashboardTodosAll
+    .filter(t => {
+      const p = todoPriority(t);
+      return p === 'critique' || p === 'urgent';
+    })
+    .sort((a, b) => {
+      const pa = _priorityRank[todoPriority(a)] ?? 9;
+      const pb = _priorityRank[todoPriority(b)] ?? 9;
+      if (pa !== pb) return pa - pb;
+      return (a.due || '9999').localeCompare(b.due || '9999');
+    })
+    .slice(0, 4);
   const urgentBox = dash.urgent;
   if (urgentBox) {
     if (urgentTodos.length === 0) {
       urgentBox.hidden = true;
       urgentBox.innerHTML = '';
     } else {
+      const scoped = _roleKey !== 'autre' && _roleKey !== 'manager';
+      const headTitle = scoped
+        ? `Pour toi · ${escapeHtml(_role.label)}`
+        : `${urgentTodos.length} tâche${urgentTodos.length > 1 ? 's' : ''} à traiter en priorité`;
       urgentBox.hidden = false;
       urgentBox.innerHTML = `
         <div class="dash-urgent-head">
-          <span class="dash-urgent-flag">${icon('bolt', 11)}Urgent</span>
-          <span class="dash-urgent-title">${urgentTodos.length} tâche${urgentTodos.length > 1 ? 's' : ''} à traiter en priorité</span>
+          <span class="dash-urgent-flag">${icon('bolt', 11)}${scoped ? 'Priorités' : 'Urgent'}</span>
+          <span class="dash-urgent-title">${headTitle}</span>
         </div>
         <div class="dash-urgent-list">
-          ${urgentTodos.map(t => `
-            <div class="dash-urgent-item" onclick="openDetail('todo','${t.id}')">
-              <div class="todo-checkbox" style="border-color: var(--danger);" onclick="event.stopPropagation(); toggleTodo('${t.id}')"></div>
+          ${urgentTodos.map(t => {
+            const p = todoPriority(t);
+            const borderColor = p === 'critique' ? 'var(--danger)' : p === 'urgent' ? 'var(--warning)' : 'var(--accent)';
+            return `
+            <div class="dash-urgent-item" data-priority="${p}" onclick="openDetail('todo','${t.id}')">
+              <div class="todo-checkbox" style="border-color: ${borderColor};" onclick="event.stopPropagation(); toggleTodo('${t.id}')"></div>
               <div class="dash-urgent-item-text">${escapeHtml(t.text)}</div>
               <div class="dash-urgent-item-meta">${t.due ? formatDate(t.due) : ''}</div>
             </div>
-          `).join('')}
+          `;}).join('')}
         </div>
       `;
     }
@@ -7710,13 +7743,17 @@ function renderDashboard() {
      then renders into #dashboardRelease. Hidden entirely when no release is set. */
   renderReleaseCountdown(nextRelease, today);
 
-  /* STATS STRIP — Tâches actives + Rendez-vous à venir (release lives in its own card above) */
+  /* STATS STRIP — Tâches actives + Rendez-vous à venir (release lives in its own card above).
+     "Tâches actives" count is role-scoped (uses dashboardTodosAll, same filter as the
+     urgent box) so the number on the chip matches what the user actually sees below.
+     Manager + autre roles see the team-wide count (their dashboardTodosAll already
+     equals the unfiltered set). */
   const upcomingNonRelease = upcoming.filter(e => e.type !== 'release');
   const stats = [
     {
-      label: 'Tâches actives',
-      value: (state.todos || []).filter(t => !t.done).length,
-      sub: `${(state.todos || []).filter(t => t.urgent && !t.done).length} en urgent`,
+      label: (_roleKey !== 'autre' && _roleKey !== 'manager') ? 'Tes tâches actives' : 'Tâches actives',
+      value: dashboardTodosAll.length,
+      sub: `${dashboardTodosAll.filter(t => { const p = todoPriority(t); return p === 'critique' || p === 'urgent'; }).length} en priorité`,
       onclick: `activate('todos')`,
     },
     {
@@ -7967,6 +8004,43 @@ function getCurrentRoleKey() {
 }
 function getCurrentRole() {
   return ROLE_BY_KEY[getCurrentRoleKey()] || ROLE_BY_KEY['autre'];
+}
+
+/* Role → keyword vocabulary for filtering todos on the dashboard.
+   Match is a case-insensitive substring scan against todo.text. Roles not
+   listed (manager, autre) see ALL todos — they're not job-scoped views.
+   Keep this list pragmatic: real words that real todos contain, not exhaustive
+   ontologies. Add new keywords here whenever a recurring task pattern emerges
+   in production. */
+const ROLE_KEYWORDS = {
+  'ingenieur-son':     ['mix','master','mastering','audio','wav','mp3','stems','stem','export','exports','son','plug-in','plugin','reverb','compression','mastering','automation','prélax','pre-mix','premix','pre mix'],
+  'producteur':        ['beat','prod','prods','instru','sample','samples','kick','drum','drums','sound design','bassline','melody','session','studio','vinyl'],
+  'realisateur':       ['clip','tournage','shoot','tourner','rush','rushes','plan','séquence','sequence','découpage','decoupage','scénario','scenario','storyboard','tournages','réal','real','caméra','camera'],
+  'monteur':           ['montage','monter','cut','export vidéo','export video','premiere','davinci','final cut','timeline','color','colorimétrie','colorimetrie','transitions','sous-titres','sous titres','sub'],
+  'graphiste':         ['cover','asset','assets','visuel','visuels','design','logo','branding','illu','illustration','photoshop','indesign','figma','illustrator','pochette','thumbnail','typo','typographie','flyer','print','identité','identite'],
+  'community-manager': ['post','posts','story','stories','tiktok','tik tok','instagram','insta','reels','réseaux','reseaux','social','socials','campagne','campagnes','teaser','teasers','promo','caption','hashtag','newsletter','community','cm','programmer'],
+  'artiste':           ['interview','session','studio','shoot','écriture','ecriture','flow','lyrics','texte','écrire','ecrire','live','showcase','répétition','repetition','répétitions','repetitions','radio','podcast'],
+};
+
+// Does this todo concern the given role? Keyword match against todo.text.
+// Roles without a keyword list (manager, autre) always return true — they
+// see everything. Empty/whitespace text returns false (no signal).
+function isTodoRoleRelevant(todo, roleKey) {
+  if (!roleKey || roleKey === 'autre' || roleKey === 'manager') return true;
+  const keywords = ROLE_KEYWORDS[roleKey];
+  if (!keywords || !keywords.length) return true;
+  const text = ((todo && todo.text) || '').toLowerCase().trim();
+  if (!text) return false;
+  return keywords.some(k => text.includes(k));
+}
+
+// Dashboard inclusion rule: critical priority always shows (you don't hide
+// a P0 because of role filtering), otherwise role-relevance applies.
+// Returns a stable predicate so call sites can pass it to filter().
+function isTodoOnDashboard(todo, roleKey) {
+  if (!todo) return false;
+  if (todoPriority(todo) === 'critique') return true;
+  return isTodoRoleRelevant(todo, roleKey);
 }
 function formatEventTime(time) {
   if (!time) return '';
