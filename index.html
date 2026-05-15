@@ -1621,6 +1621,248 @@
     margin-right: 6px;
     border: 1px solid var(--border-soft);
   }
+  .user-chip-avatar.has-image { color: transparent; }
+
+  /* Greeting avatar — slightly larger than the chip, sits inline with the name */
+  .dash-greeting-avatar {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: var(--glass-bg-strong);
+    background-size: cover;
+    background-position: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font: 700 13px/1 "SF Pro Display", sans-serif;
+    color: var(--text);
+    border: 1px solid var(--border-soft);
+    margin-right: 10px;
+    vertical-align: -7px;
+  }
+  .dash-greeting-avatar.has-image { color: transparent; }
+
+  /* Event-credit avatar — when the actor has an uploaded image we show it
+     instead of the initial. Same shape, just a real face. */
+  .cal-event-avatar.has-image,
+  .cal-event-avatar-lg.has-image {
+    background-size: cover;
+    background-position: center;
+    color: transparent !important;
+  }
+
+  /* CHIPS (skills) — pill list with X-to-remove */
+  .profile-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: var(--space-4);
+  }
+  .profile-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px 6px 12px;
+    background: rgba(var(--accent-rgb), 0.08);
+    border: 1px solid rgba(var(--accent-rgb), 0.28);
+    border-radius: 100px;
+    color: var(--text);
+    font: var(--font-caption);
+    font-weight: 600;
+  }
+  .profile-chip button {
+    width: 18px; height: 18px;
+    background: rgba(255,255,255,0.06);
+    border: none;
+    border-radius: 50%;
+    color: var(--text-soft);
+    cursor: pointer;
+    line-height: 1;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background var(--duration-fast) var(--ease-standard),
+                color var(--duration-fast) var(--ease-standard);
+  }
+  .profile-chip button:hover {
+    background: rgba(255,69,58,0.18);
+    color: var(--danger);
+  }
+  .profile-chips-empty {
+    color: var(--text-dim);
+    font: var(--font-caption);
+    padding: 8px 4px;
+  }
+  .profile-chip-add {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .profile-chip-add input {
+    flex: 1;
+    background: rgba(0,0,0,0.18);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    padding: 8px 12px;
+    font: var(--font-body);
+  }
+  .profile-chip-add input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: rgba(0,0,0,0.28);
+  }
+
+  /* SOCIAL LINKS */
+  .profile-socials {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: var(--space-3);
+  }
+  .profile-social {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--glass-bg);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    text-decoration: none;
+    font: var(--font-body);
+    font-weight: 500;
+    transition: border-color var(--duration-fast) var(--ease-standard),
+                transform var(--duration-fast) var(--ease-standard),
+                background var(--duration-fast) var(--ease-standard);
+  }
+  .profile-social:hover {
+    border-color: var(--accent);
+    transform: translateY(-1px);
+    background: var(--glass-bg-strong);
+  }
+  .profile-social-emoji {
+    font-size: 16px;
+    line-height: 1;
+  }
+  .profile-socials-empty {
+    color: var(--text-dim);
+    font: var(--font-caption);
+    padding: 8px 4px;
+  }
+  .profile-socials-editor {
+    margin-top: var(--space-3);
+  }
+  .profile-socials-editor summary {
+    cursor: pointer;
+    font: var(--font-caption);
+    color: var(--text-soft);
+    user-select: none;
+    padding: 8px 0;
+    transition: color var(--duration-fast) var(--ease-standard);
+  }
+  .profile-socials-editor summary:hover { color: var(--text); }
+  .profile-socials-form {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 10px 14px;
+    padding: var(--space-4);
+    background: var(--glass-bg);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    margin-top: 8px;
+  }
+  .profile-socials-form label {
+    font: var(--font-body);
+    color: var(--text-soft);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .profile-socials-form input {
+    background: rgba(0,0,0,0.18);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    padding: 8px 12px;
+    font: var(--font-body);
+  }
+  .profile-socials-form input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  @media (max-width: 520px) {
+    .profile-socials-form { grid-template-columns: 1fr; gap: 4px 0; }
+    .profile-socials-form label { padding-top: 6px; }
+  }
+
+  /* NOTIFICATIONS — toggle list, lives in the Préférences section */
+  .profile-notif-list {
+    margin-top: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: var(--space-3) var(--space-5);
+    background: var(--glass-bg);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+  }
+  .profile-notif-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--space-4);
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .profile-notif-row:last-child { border-bottom: none; }
+  .profile-notif-text strong {
+    font: var(--font-body);
+    color: var(--text);
+    font-weight: 600;
+    display: block;
+  }
+  .profile-notif-text span {
+    font: var(--font-caption);
+    color: var(--text-dim);
+    margin-top: 2px;
+    display: block;
+  }
+  .profile-toggle {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 22px;
+    flex-shrink: 0;
+  }
+  .profile-toggle input { opacity: 0; width: 0; height: 0; }
+  .profile-toggle .profile-toggle-track {
+    position: absolute;
+    cursor: pointer;
+    inset: 0;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid var(--border-soft);
+    border-radius: 100px;
+    transition: background var(--duration-fast) var(--ease-standard);
+  }
+  .profile-toggle .profile-toggle-track::before {
+    content: '';
+    position: absolute;
+    width: 14px; height: 14px;
+    left: 3px; top: 3px;
+    background: var(--text-soft);
+    border-radius: 50%;
+    transition: transform var(--duration-fast) var(--ease-standard),
+                background var(--duration-fast) var(--ease-standard);
+  }
+  .profile-toggle input:checked + .profile-toggle-track {
+    background: rgba(var(--accent-rgb), 0.35);
+    border-color: rgba(var(--accent-rgb), 0.55);
+  }
+  .profile-toggle input:checked + .profile-toggle-track::before {
+    transform: translateX(18px);
+    background: var(--accent);
+  }
 
   /* ROLE GRID — modal de sélection du rôle métier */
   .role-grid {
@@ -5311,6 +5553,7 @@
       <div class="brand-sub">× Degzzy</div>
       <div class="brand-meta">Projet R.I.C.H — Sept. 2026</div>
       <div id="userChip" class="user-chip" onclick="toggleAccountMenu(event)" style="display:none;">
+        <span class="user-chip-avatar" id="userChipAvatar" aria-hidden="true"></span>
         <span class="user-chip-dot"></span>
         <span id="userChipName">—</span>
       </div>
@@ -5391,7 +5634,10 @@
     <div class="view active" id="view-dashboard">
       <!-- GREETING perso : Bienvenue {name} / aka {alias éditable} -->
       <section class="dash-greeting">
-        <div class="dash-greeting-main">Bienvenue <strong class="dash-greeting-name" id="dashGreetingName">—</strong></div>
+        <div class="dash-greeting-main">
+          <span class="dash-greeting-avatar" id="dashGreetingAvatar" aria-hidden="true"></span>
+          Bienvenue <strong class="dash-greeting-name" id="dashGreetingName">—</strong>
+        </div>
         <div class="dash-greeting-aka-line" id="dashGreetingAkaLine"><span class="dash-greeting-aka">aka </span><span class="dash-greeting-alias" id="dashGreetingAlias" contenteditable="true" spellcheck="false" data-placeholder="ajouter un alias" role="textbox" aria-label="Ton alias"></span></div>
       </section>
 
@@ -5506,6 +5752,31 @@
 
       <section class="profile-section">
         <header class="profile-section-head">
+          <h2>Compétences</h2>
+          <span class="profile-section-meta">Ce que tu maîtrises</span>
+        </header>
+        <div class="profile-chips" id="profileSkills"></div>
+        <form class="profile-chip-add" onsubmit="event.preventDefault(); addProfileSkill();">
+          <input id="profileSkillInput" type="text" placeholder="ex: mix électronique, after effects, écriture…"
+                 maxlength="40" autocomplete="off" />
+          <button type="submit" class="btn">Ajouter</button>
+        </form>
+      </section>
+
+      <section class="profile-section">
+        <header class="profile-section-head">
+          <h2>Liens sociaux</h2>
+          <span class="profile-section-meta">Où l'équipe peut te suivre</span>
+        </header>
+        <div class="profile-socials" id="profileSocials"></div>
+        <details class="profile-socials-editor">
+          <summary>Modifier mes liens</summary>
+          <div class="profile-socials-form" id="profileSocialsForm"></div>
+        </details>
+      </section>
+
+      <section class="profile-section">
+        <header class="profile-section-head">
           <h2>Activité récente</h2>
           <span class="profile-section-meta" id="profileActivityMeta">—</span>
         </header>
@@ -5528,6 +5799,8 @@
             <span class="profile-field-hint">Concerne ce qui apparaît dans cette section d'activité. Les events privés restent toujours privés.</span>
           </div>
         </div>
+
+        <div class="profile-notif-list" id="profileNotifList"></div>
       </section>
     </div>
 
@@ -8001,6 +8274,11 @@ function renderDashboard() {
       || (state.user && state.user.name)
       || (_currentUser && _currentUser.email ? _currentUser.email.split('@')[0] : 'à toi');
     dash.greetingName.textContent = name;
+    // Seed the avatar initial inline with the greeting (image upgrade comes async).
+    const greetAvatar = document.getElementById('dashGreetingAvatar');
+    if (greetAvatar && !greetAvatar.classList.contains('has-image')) {
+      greetAvatar.textContent = (name || '?').charAt(0).toUpperCase();
+    }
   }
   if (dash.greetingAlias) {
     const alias = (_currentProfile && _currentProfile.alias) || '';
@@ -9156,6 +9434,7 @@ function renderWeekView() {
   }
   grid.innerHTML = html;
   attachWeekInteractions();
+  if (typeof upgradeEventAvatars === 'function') upgradeEventAvatars().catch(() => {});
 }
 
 function attachWeekInteractions() {
@@ -9479,6 +9758,7 @@ function renderMonthView() {
   }
   grid.innerHTML = html;
   attachCalendarInteractions();
+  if (typeof upgradeEventAvatars === 'function') upgradeEventAvatars().catch(() => {});
 }
 
 /* CALENDAR INTERACTIONS — drag&drop events between days + click-to-open.
@@ -9850,7 +10130,11 @@ function _eventActorAvatarHTML(actor, extraClass) {
   const color = _actorColor(actor);
   const cls = 'cal-event-avatar' + (extraClass ? ' ' + extraClass : '');
   const title = actor.name ? escapeHtml(actor.name) : '';
-  return `<span class="${cls}" style="background:${color}" title="${title}">${escapeHtml(initial)}</span>`;
+  // data-actor-id powers upgradeEventAvatars(): after render the async pass
+  // replaces the initial+colour background with the user's photo when one is
+  // cached in IDB. The initial stays as the immediate, sync render.
+  const actorId = actor.id ? escapeHtml(actor.id) : '';
+  return `<span class="${cls}" data-actor-id="${actorId}" style="background:${color}" title="${title}">${escapeHtml(initial)}</span>`;
 }
 // Full tooltip line for the pill — shown via the title attribute.
 // "Créé par Chouaib • il y a 2 j · Modifié par Degzzy • à l'instant"
@@ -10137,6 +10421,17 @@ function _getProfileViewModel() {
   const since = u.since || p.created_at || null;
   const roleKey = getCurrentRoleKey();
   const role = ROLE_BY_KEY[roleKey] || ROLE_BY_KEY['autre'];
+  // skills: stored as text[] in Postgres; comma-separated string fallback
+  // accepts legacy/manual writes. Normalize to an array of trimmed strings.
+  let skills = [];
+  if (Array.isArray(p.skills)) skills = p.skills;
+  else if (typeof p.skills === 'string' && p.skills.trim()) skills = p.skills.split(',');
+  skills = skills.map(s => String(s).trim()).filter(Boolean);
+  // social_links + notifications_prefs are stored as JSON columns
+  const socials = (p.social_links && typeof p.social_links === 'object') ? p.social_links : {};
+  const notifs = (p.notifications_prefs && typeof p.notifications_prefs === 'object')
+    ? p.notifications_prefs
+    : { releases: true, deadlines: true, mentions: false, weeklyDigest: false };
   return {
     userId, email, name, alias, since,
     roleKey, roleLabel: role.label,
@@ -10145,6 +10440,9 @@ function _getProfileViewModel() {
     specialty: p.specialty || '',
     avatarPath: p.avatar_path || '',
     activityVisibility: p.activity_visibility || 'team',
+    skills,
+    socials,
+    notifs,
   };
 }
 
@@ -10201,8 +10499,161 @@ function renderProfile() {
   // Activity — last 5 events created + todos completed by me
   renderProfileActivity(vm);
 
+  // Skills, socials, notifs — Phase 2A additions
+  renderProfileSkills(vm);
+  renderProfileSocials(vm);
+  renderProfileNotifs(vm);
+
   // Avatar — load from IDB cache, fall back to Supabase Storage
   refreshProfileAvatar(vm).catch(e => console.warn('avatar refresh failed:', e));
+}
+
+/* ============================
+   SKILLS — array of small free-text chips
+   ============================ */
+function renderProfileSkills(vm) {
+  const container = document.getElementById('profileSkills');
+  if (!container) return;
+  const skills = Array.isArray(vm.skills) ? vm.skills : [];
+  if (skills.length === 0) {
+    container.innerHTML = '<div class="profile-chips-empty">Aucune compétence ajoutée. Tape ci-dessous pour en ajouter une.</div>';
+    return;
+  }
+  container.innerHTML = skills.map((s, i) => `
+    <span class="profile-chip">
+      ${escapeHtml(s)}
+      <button type="button" onclick="removeProfileSkill(${i})" aria-label="Retirer ${escapeHtml(s)}">×</button>
+    </span>
+  `).join('');
+}
+async function addProfileSkill() {
+  const input = document.getElementById('profileSkillInput');
+  if (!input) return;
+  const value = input.value.trim().slice(0, 40);
+  if (!value) return;
+  const vm = _getProfileViewModel();
+  // Dedup, case-insensitive
+  const exists = vm.skills.some(s => s.toLowerCase() === value.toLowerCase());
+  if (exists) { input.value = ''; toast('Déjà dans la liste.'); return; }
+  const next = [...vm.skills, value];
+  await _persistProfileSkills(next);
+  input.value = '';
+  renderProfileSkills({ ...vm, skills: next });
+  if (typeof haptic === 'function') haptic(8);
+}
+async function removeProfileSkill(idx) {
+  const vm = _getProfileViewModel();
+  const next = vm.skills.filter((_, i) => i !== idx);
+  await _persistProfileSkills(next);
+  renderProfileSkills({ ...vm, skills: next });
+}
+async function _persistProfileSkills(arr) {
+  if (_currentProfile) _currentProfile.skills = arr;
+  try {
+    if (sb && _currentUser && _currentUser.id) {
+      // text[] column accepts a JS array directly via supabase-js
+      await sb.from('profiles').update({ skills: arr }).eq('id', _currentUser.id);
+    }
+  } catch (e) { console.warn('skills persist failed:', e); }
+}
+
+/* ============================
+   SOCIAL LINKS — structured map { tiktok, instagram, spotify, youtube,
+   appleMusic, x, website }. Empty strings hide the chip.
+   ============================ */
+const SOCIAL_PLATFORMS = [
+  { key: 'tiktok',     label: 'TikTok',      emoji: '🎵', placeholder: 'https://tiktok.com/@…' },
+  { key: 'instagram',  label: 'Instagram',   emoji: '📸', placeholder: 'https://instagram.com/…' },
+  { key: 'spotify',    label: 'Spotify',     emoji: '🟢', placeholder: 'https://open.spotify.com/artist/…' },
+  { key: 'youtube',    label: 'YouTube',     emoji: '▶',  placeholder: 'https://youtube.com/@…' },
+  { key: 'appleMusic', label: 'Apple Music', emoji: '',  placeholder: 'https://music.apple.com/artist/…' },
+  { key: 'x',          label: 'X / Twitter', emoji: '𝕏',  placeholder: 'https://x.com/…' },
+  { key: 'website',    label: 'Site web',    emoji: '🌐', placeholder: 'https://…' },
+];
+// Light URL guard — only accepts http(s) so we don't render javascript: URLs as clickable.
+function _safeSocialUrl(raw) {
+  if (!raw) return '';
+  let v = String(raw).trim();
+  if (!v) return '';
+  // Auto-prepend https when the user dropped just a domain
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(v)) v = 'https://' + v;
+  return /^https?:\/\//i.test(v) ? v : '';
+}
+function renderProfileSocials(vm) {
+  const container = document.getElementById('profileSocials');
+  const form = document.getElementById('profileSocialsForm');
+  if (!container || !form) return;
+  const socials = vm.socials || {};
+  // Display: only platforms with a non-empty URL
+  const filled = SOCIAL_PLATFORMS.filter(p => _safeSocialUrl(socials[p.key]));
+  if (filled.length === 0) {
+    container.innerHTML = '<div class="profile-socials-empty">Aucun lien pour l\'instant. Déplie « Modifier mes liens » pour en ajouter.</div>';
+  } else {
+    container.innerHTML = filled.map(p => {
+      const url = _safeSocialUrl(socials[p.key]);
+      return `<a class="profile-social" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">
+        ${p.emoji ? `<span class="profile-social-emoji" aria-hidden="true">${p.emoji}</span>` : ''}
+        <span>${escapeHtml(p.label)}</span>
+      </a>`;
+    }).join('');
+  }
+  // Editor form: one input per platform
+  form.innerHTML = SOCIAL_PLATFORMS.map(p => `
+    <label for="social_${p.key}">${p.emoji ? p.emoji + ' ' : ''}${escapeHtml(p.label)}</label>
+    <input id="social_${p.key}" type="url" inputmode="url" placeholder="${escapeHtml(p.placeholder)}"
+           value="${escapeHtml(socials[p.key] || '')}"
+           onblur="updateProfileSocial('${p.key}', this.value)" />
+  `).join('');
+}
+async function updateProfileSocial(key, value) {
+  const vm = _getProfileViewModel();
+  const next = { ...vm.socials, [key]: String(value || '').trim() };
+  if (_currentProfile) _currentProfile.social_links = next;
+  try {
+    if (sb && _currentUser && _currentUser.id) {
+      await sb.from('profiles').update({ social_links: next }).eq('id', _currentUser.id);
+    }
+  } catch (e) { console.warn('social persist failed:', e); }
+  renderProfileSocials({ ..._getProfileViewModel() });
+}
+
+/* ============================
+   NOTIFICATIONS PREFERENCES — toggle map. UI persists the prefs; actual
+   delivery wires up in Phase 2B. Keeping the structure small + extensible.
+   ============================ */
+const NOTIF_PREFS = [
+  { key: 'releases',     title: 'Releases imminentes',  sub: 'J-7 / J-3 / jour J sur chaque sortie' },
+  { key: 'deadlines',    title: 'Tes deadlines',        sub: 'Tâches qui approchent leur échéance' },
+  { key: 'mentions',     title: 'Mentions',             sub: 'Quand on te cite dans un event ou todo' },
+  { key: 'weeklyDigest', title: 'Récap hebdomadaire',   sub: 'Lundi matin, ton agenda + priorités' },
+];
+function renderProfileNotifs(vm) {
+  const container = document.getElementById('profileNotifList');
+  if (!container) return;
+  const prefs = vm.notifs || {};
+  container.innerHTML = NOTIF_PREFS.map(n => `
+    <div class="profile-notif-row">
+      <div class="profile-notif-text">
+        <strong>${escapeHtml(n.title)}</strong>
+        <span>${escapeHtml(n.sub)}</span>
+      </div>
+      <label class="profile-toggle">
+        <input type="checkbox" ${prefs[n.key] ? 'checked' : ''} onchange="toggleProfileNotif('${n.key}', this.checked)" />
+        <span class="profile-toggle-track"></span>
+      </label>
+    </div>
+  `).join('');
+}
+async function toggleProfileNotif(key, checked) {
+  const vm = _getProfileViewModel();
+  const next = { ...vm.notifs, [key]: !!checked };
+  if (_currentProfile) _currentProfile.notifications_prefs = next;
+  try {
+    if (sb && _currentUser && _currentUser.id) {
+      await sb.from('profiles').update({ notifications_prefs: next }).eq('id', _currentUser.id);
+    }
+  } catch (e) { console.warn('notif persist failed:', e); }
+  if (typeof haptic === 'function') haptic(6);
 }
 
 function renderProfileStats(vm) {
@@ -10296,6 +10747,88 @@ function renderProfileActivity(vm) {
    IDB cache lives in the existing idbSaveCover/idbGetCover helpers under the
    key "user_{userId}". Object URLs are tracked + revoked on replacement to
    avoid leaks. */
+
+// Resolve an avatar object URL for any user ID. Uses an in-flight promise map
+// so multiple concurrent reads dedup to a single IDB hit. Returns '' if no
+// avatar is available; caller falls back to the initial circle.
+const _avatarUrlCache = new Map(); // userId → string url
+const _avatarUrlInflight = new Map(); // userId → promise
+async function getUserAvatarUrl(userId) {
+  if (!userId) return '';
+  if (_avatarUrlCache.has(userId)) return _avatarUrlCache.get(userId);
+  if (_avatarUrlInflight.has(userId)) return _avatarUrlInflight.get(userId);
+  const promise = (async () => {
+    try {
+      const cached = await idbGetCover('user_' + userId);
+      if (cached && cached.blob) {
+        const url = URL.createObjectURL(cached.blob);
+        _avatarUrlCache.set(userId, url);
+        return url;
+      }
+    } catch (e) { /* ignore */ }
+    _avatarUrlCache.set(userId, '');
+    return '';
+  })();
+  _avatarUrlInflight.set(userId, promise);
+  try { return await promise; }
+  finally { _avatarUrlInflight.delete(userId); }
+}
+
+// Invalidate cached avatar URL — called after a successful upload so the
+// next read fetches the new file.
+function invalidateAvatarUrl(userId) {
+  if (!userId) return;
+  const url = _avatarUrlCache.get(userId);
+  if (url) try { URL.revokeObjectURL(url); } catch (e) {}
+  _avatarUrlCache.delete(userId);
+}
+
+// Apply the current user's avatar to the sidebar chip + dashboard greeting.
+// Called after upload + on render. Failures are silent — the initial-letter
+// fallback already covers the no-avatar case.
+async function applyAvatarToHeaderUI() {
+  const me = (_currentUser && _currentUser.id) || null;
+  if (!me) return;
+  const url = await getUserAvatarUrl(me);
+  // Sidebar chip
+  const chipAvatar = document.querySelector('#userChip .user-chip-avatar');
+  if (chipAvatar) {
+    if (url) {
+      chipAvatar.style.backgroundImage = 'url(' + url + ')';
+      chipAvatar.classList.add('has-image');
+    } else {
+      chipAvatar.style.backgroundImage = '';
+      chipAvatar.classList.remove('has-image');
+    }
+  }
+  // Dashboard greeting
+  const greetAvatar = document.getElementById('dashGreetingAvatar');
+  if (greetAvatar) {
+    if (url) {
+      greetAvatar.style.backgroundImage = 'url(' + url + ')';
+      greetAvatar.classList.add('has-image');
+    } else {
+      greetAvatar.style.backgroundImage = '';
+      greetAvatar.classList.remove('has-image');
+    }
+  }
+}
+
+// Async upgrade of any rendered cal-event-avatar spans with a `data-actor-id`
+// attribute — replaces the initial-letter background with the user's photo
+// when available. Called after renderCalendar / renderDashboard.
+async function upgradeEventAvatars() {
+  const nodes = document.querySelectorAll('.cal-event-avatar[data-actor-id]:not(.has-image)');
+  for (const node of nodes) {
+    const id = node.dataset.actorId;
+    if (!id) continue;
+    const url = await getUserAvatarUrl(id);
+    if (url) {
+      node.style.backgroundImage = 'url(' + url + ')';
+      node.classList.add('has-image');
+    }
+  }
+}
 async function refreshProfileAvatar(vm) {
   if (!vm || !vm.userId) return;
   const avatarEl = document.getElementById('profileAvatar');
@@ -10334,6 +10867,10 @@ async function refreshProfileAvatar(vm) {
     avatarEl.style.backgroundImage = '';
     avatarEl.classList.remove('has-image');
   }
+  // Mirror to header UI (sidebar chip + dashboard greeting + open event pills)
+  invalidateAvatarUrl(vm.userId);
+  applyAvatarToHeaderUI().catch(() => {});
+  upgradeEventAvatars().catch(() => {});
 }
 
 async function handleAvatarUpload(ev) {
@@ -12495,8 +13032,18 @@ function refreshUserChip() {
   if (state.user && state.user.name) {
     chip.style.display = 'inline-flex';
     document.getElementById('userChipName').textContent = state.user.name + ' · ' + state.user.role;
+    // Seed the chip-avatar initial (in case no image is cached yet).
+    const chipAvatar = document.getElementById('userChipAvatar');
+    if (chipAvatar && !chipAvatar.classList.contains('has-image')) {
+      chipAvatar.textContent = (state.user.name || '?').charAt(0).toUpperCase();
+    }
   } else {
     chip.style.display = 'none';
+  }
+  // Pull the user's photo (if any) into the chip + dashboard greeting.
+  // applyAvatarToHeaderUI() is defined further down so we guard the call.
+  if (typeof applyAvatarToHeaderUI === 'function') {
+    applyAvatarToHeaderUI().catch(() => {});
   }
 }
 refreshUserChip();
