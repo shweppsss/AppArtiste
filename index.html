@@ -1134,6 +1134,28 @@
   .cal-week-event[data-type="milestone"] { border-color: var(--danger); }
   .cal-week-event[data-type="other"] { border-color: var(--text-soft); }
   .cal-week-event.cal-event-dragging { opacity: 0.35; pointer-events: none; }
+  .cal-week-event.cal-event-resizing { box-shadow: 0 4px 12px -2px rgba(0,0,0,0.5); z-index: 3; }
+  .cal-week-event-resize {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 8px;
+    cursor: ns-resize;
+    touch-action: none;
+    z-index: 2;
+  }
+  .cal-week-event-resize::after {
+    content: '';
+    position: absolute;
+    left: 50%; bottom: 2px;
+    transform: translateX(-50%);
+    width: 18px; height: 2px;
+    border-radius: 2px;
+    background: var(--text-dim);
+    opacity: 0;
+    transition: opacity var(--duration-fast) var(--ease-standard);
+  }
+  .cal-week-event:hover .cal-week-event-resize::after { opacity: 0.6; }
+  .cal-week-event.cal-event-resizing .cal-week-event-resize::after { opacity: 1; background: var(--accent); }
   .cal-week-now-line {
     position: absolute;
     left: 0; right: 0;
@@ -1200,6 +1222,7 @@
   }
   .cal-event:hover { transform: translateX(1px); }
   .cal-event:active { cursor: grabbing; }
+  .cal-event-dur { color: var(--text-dim); font-weight: 400; font-size: 0.9em; }
   /* Source pill while a drag is in progress — fades so the user knows it's lifted */
   .cal-event-dragging {
     opacity: 0.35;
@@ -4883,6 +4906,24 @@
           <label>Heure (optionnel)</label>
           <input type="time" id="eventTime" />
         </div>
+        <div class="field" style="flex: 1;">
+          <label>Durée</label>
+          <select id="eventDuration">
+            <option value="15">15 min</option>
+            <option value="30">30 min</option>
+            <option value="45">45 min</option>
+            <option value="60" selected>1 h</option>
+            <option value="75">1 h 15</option>
+            <option value="90">1 h 30</option>
+            <option value="105">1 h 45</option>
+            <option value="120">2 h</option>
+            <option value="150">2 h 30</option>
+            <option value="180">3 h</option>
+            <option value="240">4 h</option>
+            <option value="360">6 h</option>
+            <option value="480">8 h</option>
+          </select>
+        </div>
       </div>
       <div class="field">
         <label>Type</label>
@@ -7823,6 +7864,25 @@ function _minsToTime(mins) {
   const m = mins % 60;
   return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
 }
+// "1 h 30" / "45 min" / "2 h" — compact French label for event duration.
+function _formatDuration(mins) {
+  const n = Math.max(0, parseInt(mins, 10) || 0);
+  if (n === 0) return '';
+  if (n < 60) return n + ' min';
+  const h = Math.floor(n / 60);
+  const m = n % 60;
+  if (m === 0) return h + ' h';
+  return h + ' h ' + String(m).padStart(2, '0');
+}
+// "14:00 – 15:30" given a start time + duration. Empty string if no time.
+function _formatEventRange(time, durationMins) {
+  if (!time) return '';
+  const start = _timeToMins(time);
+  if (start == null) return '';
+  const dur = parseInt(durationMins, 10) || 60;
+  const end = Math.min(24 * 60 - 1, start + dur);
+  return formatEventTime(time) + ' – ' + formatEventTime(_minsToTime(end));
+}
 
 function renderWeekView() {
   const grid = document.getElementById('calendarGrid');
@@ -7889,16 +7949,22 @@ function renderWeekView() {
       if (mins === null) { mins = START_HOUR * 60; allDay = true; }
       const minutesFromTop = Math.max(0, mins - START_HOUR * 60);
       const top = (minutesFromTop / 60) * HOUR_HEIGHT;
-      const heightMins = 60; // default 1h slot (no duration field yet)
+      // All-day events keep the visual 1h slot height; timed events use their stored duration.
+      const heightMins = allDay ? 60 : Math.max(15, parseInt(e.duration, 10) || 60);
       const height = (heightMins / 60) * HOUR_HEIGHT - 4;
-      const timeLabel = allDay ? 'Toute la journée' : (e.time ? formatEventTime(e.time) : '');
+      const timeLabel = allDay
+        ? 'Toute la journée'
+        : (e.time ? _formatEventRange(e.time, heightMins) : '');
       const tip = _eventTooltip(e);
       const avatar = e.createdBy ? _eventActorAvatarHTML(e.createdBy) : '';
+      // Resize handle hidden for all-day pills (no duration semantic).
+      const resizeHandle = allDay ? '' : '<div class="cal-week-event-resize" data-resize-handle="1"></div>';
       html += `<div class="cal-week-event" data-type="${escapeHtml(e.type)}" data-event-id="${escapeHtml(e.id)}"
                     style="top:${top + 2}px; height:${height}px;"${tip ? ` title="${escapeHtml(tip)}"` : ''}>
         ${avatar ? `<div class="cal-week-event-actor">${avatar}</div>` : ''}
         ${timeLabel ? `<div class="cal-week-event-time">${timeLabel}</div>` : ''}
         <div class="cal-week-event-title">${escapeHtml(e.title)}</div>
+        ${resizeHandle}
       </div>`;
     }
     // Current-time red line (only on today)
@@ -7934,15 +8000,22 @@ function attachWeekInteractions() {
       }, 50);
     });
   });
-  // Event pills → drag to move (day + hour)
+  // Event pills → drag to move (day + hour). Resize handle has its own
+  // pointerdown that stops propagation, so the move handler never sees it.
   grid.querySelectorAll('.cal-week-event[data-event-id]').forEach(pill => {
     pill.addEventListener('pointerdown', _onWeekEventPointerDown);
+  });
+  grid.querySelectorAll('.cal-week-event-resize').forEach(handle => {
+    handle.addEventListener('pointerdown', _onWeekEventResizeDown);
   });
 }
 
 let _weekDrag = null;
 function _onWeekEventPointerDown(e) {
   if (e.pointerType === 'mouse' && e.button !== 0) return;
+  // The resize handle stops propagation in its own handler — this is a
+  // belt-and-suspenders guard against any path that bypasses it.
+  if (e.target.closest && e.target.closest('.cal-week-event-resize')) return;
   if (_weekDrag) _cleanupWeekDrag(null);
   const pill = e.currentTarget;
   const id = pill.dataset.eventId;
@@ -8070,6 +8143,113 @@ function _cleanupWeekDrag(e) {
   }
 }
 
+/* WEEK-VIEW RESIZE — drag the bottom handle to grow/shrink an event's duration.
+   Snap is 15 min. Min duration is 15 min, max is until midnight of the same day.
+   Listeners live on the document so a mid-resize re-render (realtime sync) doesn't
+   strand them. Escape cancels and reverts. */
+let _weekResize = null;
+function _onWeekEventResizeDown(e) {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const handle = e.currentTarget;
+  const pill = handle.closest('.cal-week-event[data-event-id]');
+  if (!pill) return;
+  const id = pill.dataset.eventId;
+  const ev = state.events.find(x => x.id === id);
+  if (!ev) return;
+  if (_weekResize) _cleanupWeekResize(null);
+  try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+  const startMins = _timeToMins(ev.time);
+  if (startMins == null) return; // all-day event has no resize handle anyway
+  _weekResize = {
+    id,
+    pill,
+    handle,
+    pointerId: e.pointerId,
+    startY: e.clientY,
+    startDuration: Math.max(15, parseInt(ev.duration, 10) || 60),
+    startMins,
+    currentDuration: Math.max(15, parseInt(ev.duration, 10) || 60),
+    cancelled: false,
+  };
+  pill.classList.add('cal-event-resizing');
+  document.addEventListener('pointermove', _onWeekEventResizeMove);
+  document.addEventListener('pointerup', _onWeekEventResizeUp);
+  document.addEventListener('pointercancel', _onWeekEventResizeUp);
+  document.addEventListener('keydown', _onWeekResizeKeydown);
+}
+
+function _onWeekEventResizeMove(e) {
+  if (!_weekResize) return;
+  const HOUR_HEIGHT = 56;
+  const SNAP = 15;
+  const dy = e.clientY - _weekResize.startY;
+  const deltaMins = (dy / HOUR_HEIGHT) * 60;
+  let next = _weekResize.startDuration + deltaMins;
+  next = Math.round(next / SNAP) * SNAP;
+  // Min 15 min; max stops at 23:59 from start time.
+  const maxDur = (24 * 60 - 1) - _weekResize.startMins;
+  next = Math.max(15, Math.min(maxDur, next));
+  if (next === _weekResize.currentDuration) return;
+  _weekResize.currentDuration = next;
+  // Live preview: resize the pill height + update the time label inline.
+  const newHeight = (next / 60) * HOUR_HEIGHT - 4;
+  _weekResize.pill.style.height = newHeight + 'px';
+  const timeEl = _weekResize.pill.querySelector('.cal-week-event-time');
+  if (timeEl) {
+    const ev = state.events.find(x => x.id === _weekResize.id);
+    if (ev && ev.time) timeEl.textContent = _formatEventRange(ev.time, next);
+  }
+}
+
+function _onWeekEventResizeUp(e) {
+  if (!_weekResize) return;
+  const cancelled = _weekResize.cancelled;
+  const id = _weekResize.id;
+  const newDuration = _weekResize.currentDuration;
+  const startDuration = _weekResize.startDuration;
+  _cleanupWeekResize(e);
+  if (cancelled) {
+    // Bounce back to original height — easiest is a full re-render.
+    renderCalendar();
+    return;
+  }
+  if (newDuration === startDuration) return;
+  const ev = state.events.find(x => x.id === id);
+  if (!ev) return;
+  ev.duration = newDuration;
+  _stampEventUpdate(ev);
+  save();
+  renderCalendar();
+  renderDashboard();
+  toast('⏱️ Durée : ' + _formatDuration(newDuration));
+  if (typeof haptic === 'function') haptic(15);
+}
+
+function _onWeekResizeKeydown(e) {
+  if (e.key === 'Escape' && _weekResize) {
+    e.preventDefault();
+    _weekResize.cancelled = true;
+    _cleanupWeekResize(null);
+    renderCalendar();
+  }
+}
+
+function _cleanupWeekResize(e) {
+  document.querySelectorAll('.cal-event-resizing').forEach(p => p.classList.remove('cal-event-resizing'));
+  document.removeEventListener('pointermove', _onWeekEventResizeMove);
+  document.removeEventListener('pointerup', _onWeekEventResizeUp);
+  document.removeEventListener('pointercancel', _onWeekEventResizeUp);
+  document.removeEventListener('keydown', _onWeekResizeKeydown);
+  if (_weekResize) {
+    if (_weekResize.handle && e) {
+      try { _weekResize.handle.releasePointerCapture(e.pointerId); } catch (err) {}
+    }
+    _weekResize = null;
+  }
+}
+
 function renderMonthView() {
   // Restore month-grid layout
   const grid = document.getElementById('calendarGrid');
@@ -8106,7 +8286,10 @@ function renderMonthView() {
         ${events.sort((a,b) => (a.time||'99:99').localeCompare(b.time||'99:99')).map(e => {
           const tip = _eventTooltip(e);
           const avatar = e.createdBy ? _eventActorAvatarHTML(e.createdBy) : '';
-          return `<div class="cal-event" data-type="${escapeHtml(e.type)}" data-event-id="${escapeHtml(e.id)}"${tip ? ` title="${escapeHtml(tip)}"` : ''}>${avatar}${e.time ? `<strong>${formatEventTime(e.time)}</strong> ` : ''}${escapeHtml(e.title)}</div>`;
+          // Show duration suffix only when it's not the default 1h — keeps month pills tight.
+          const dur = parseInt(e.duration, 10);
+          const durSuffix = (e.time && dur && dur !== 60) ? ` <span class="cal-event-dur">(${_formatDuration(dur)})</span>` : '';
+          return `<div class="cal-event" data-type="${escapeHtml(e.type)}" data-event-id="${escapeHtml(e.id)}"${tip ? ` title="${escapeHtml(tip)}"` : ''}>${avatar}${e.time ? `<strong>${formatEventTime(e.time)}</strong>${durSuffix} ` : ''}${escapeHtml(e.title)}</div>`;
         }).join('')}
       </div>
     `;
@@ -8293,6 +8476,7 @@ function openEventModal(date = null, eventId = null) {
     document.getElementById('eventTitle').value = e.title;
     document.getElementById('eventDate').value = e.date;
     document.getElementById('eventTime').value = e.time || '';
+    document.getElementById('eventDuration').value = String(e.duration || 60);
     document.getElementById('eventType').value = e.type;
     document.getElementById('eventLocation').value = e.location || '';
     document.getElementById('eventWith').value = e.with || '';
@@ -8303,6 +8487,7 @@ function openEventModal(date = null, eventId = null) {
     document.getElementById('eventTitle').value = '';
     document.getElementById('eventDate').value = date || new Date().toISOString().slice(0,10);
     document.getElementById('eventTime').value = '';
+    document.getElementById('eventDuration').value = '60';
     document.getElementById('eventType').value = 'meeting';
     document.getElementById('eventLocation').value = '';
     document.getElementById('eventWith').value = '';
@@ -8408,6 +8593,7 @@ function saveEvent() {
   const title = document.getElementById('eventTitle').value.trim();
   const date = document.getElementById('eventDate').value;
   const time = document.getElementById('eventTime').value;
+  const duration = parseInt(document.getElementById('eventDuration').value, 10) || 60;
   const type = document.getElementById('eventType').value;
   const location = document.getElementById('eventLocation').value.trim();
   const withWho = document.getElementById('eventWith').value.trim();
@@ -8415,10 +8601,10 @@ function saveEvent() {
   if (!title || !date) { toast('Titre et date requis.'); return; }
   if (editingEventId) {
     const e = state.events.find(x => x.id === editingEventId);
-    Object.assign(e, { title, date, time, type, location, with: withWho, notes });
+    Object.assign(e, { title, date, time, duration, type, location, with: withWho, notes });
     _stampEventUpdate(e);
   } else {
-    const ev = { id: 'e' + Date.now(), title, date, time, type, location, with: withWho, notes };
+    const ev = { id: 'e' + Date.now(), title, date, time, duration, type, location, with: withWho, notes };
     _stampEventCreate(ev);
     state.events.push(ev);
   }
@@ -10075,7 +10261,10 @@ function closeDetail() {
 function detailEventHTML(e) {
   const relatedTrack = state.tracks.find(t => e.title.toLowerCase().includes(t.name.toLowerCase()) && t.name.length > 3);
   const eyebrowParts = [typeLabel(e.type), formatDateLong(e.date)];
-  if (e.time) eyebrowParts.push(formatEventTime(e.time));
+  if (e.time) {
+    const dur = parseInt(e.duration, 10) || 60;
+    eyebrowParts.push(_formatEventRange(e.time, dur) || formatEventTime(e.time));
+  }
   // Credit block — shows creator + last editor with absolute + relative times.
   // Suppresses the "Modifié par" line when no edit ever happened after creation.
   let creditHtml = '';
@@ -10101,9 +10290,16 @@ function detailEventHTML(e) {
 
     <div class="detail-section">
       <h3>Informations</h3>
-      <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 14px;">
+      <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 14px;">
         <div class="detail-field"><label>Date</label><input type="date" value="${e.date}" onchange="updateEventField('${e.id}','date',this.value)" /></div>
         <div class="detail-field"><label>Heure</label><input type="time" value="${e.time || ''}" onchange="updateEventField('${e.id}','time',this.value)" /></div>
+        <div class="detail-field"><label>Durée</label>
+          <select onchange="updateEventField('${e.id}','duration',parseInt(this.value,10))">
+            ${[15,30,45,60,75,90,105,120,150,180,240,360,480].map(m =>
+              `<option value="${m}" ${(parseInt(e.duration,10)||60)===m?'selected':''}>${_formatDuration(m)}</option>`
+            ).join('')}
+          </select>
+        </div>
       </div>
       <div class="detail-field"><label>Type</label>
         <select onchange="updateEventField('${e.id}','type',this.value)">
