@@ -8515,9 +8515,23 @@ function subscribeToWorkspaceRealtime() {
       try {
         if (JSON.stringify(nextState) === JSON.stringify(state)) return;
       } catch (e) { /* fall through and apply */ }
+      // Diff before swap so we know which UI sections actually need a re-render.
+      // A burst of 5+ payloads (batch save by a teammate) collapses into one
+      // rAF tick via requestRender — was full renderAll() per payload before.
+      const scopes = (typeof diffStateScopes === 'function') ? diffStateScopes(state, nextState) : null;
+      const prevState = state;
       state = nextState;
       try { localStorage.setItem(workspaceKey(), JSON.stringify(state)); } catch (e) {}
-      renderAll();
+      if (scopes && scopes.length === 0) {
+        // No UI-visible field changed (e.g. only an internal cache moved) — skip
+        // both the toast and the render to avoid noise.
+        return;
+      }
+      if (scopes && typeof requestRender === 'function') {
+        requestRender({ only: scopes });
+      } else {
+        renderAll();
+      }
       refreshUserChip();
       toast('🔄 Mis à jour par un autre membre');
     })
@@ -15798,27 +15812,99 @@ function renderView(view) {
   if (view === 'kpi') renderKPI();
 }
 
-function renderAll() {
-  // Each render is isolated: a failure in one section never aborts the boot
-  // (which would leave the auth screen stuck with no visible form).
-  const sections = [
-    ['Dashboard', renderDashboard],
-    ['Profile', renderProfile],
-    ['Todos', renderTodos],
-    ['Catalogue', renderCatalogue],
-    ['Calendar', renderCalendar],
-    ['Inspirations', renderInspirations],
-    ['Clips', renderClips],
-    ['Capsules', renderCapsules],
-    ['Assets', renderAssets],
-    ['Team', renderTeam],
-    ['Budget', renderBudget],
-    ['Plan', renderPlan],
-    ['KPI', renderKPI],
-  ];
-  for (const [name, fn] of sections) {
-    try { fn(); } catch (e) { console.error('[Render] ' + name + ' failed:', e); }
+// Section map: scope name → render function. Used by both renderAll() (full
+// pass) and requestRender({ only: [...] }) (granular re-render).
+// Each render is isolated: a failure in one section never aborts the boot
+// (which would leave the auth screen stuck with no visible form).
+const RENDER_SECTIONS = {
+  dashboard:    renderDashboard,
+  profile:      renderProfile,
+  todos:        renderTodos,
+  catalogue:    renderCatalogue,
+  calendar:     renderCalendar,
+  inspirations: renderInspirations,
+  clips:        renderClips,
+  capsules:     renderCapsules,
+  assets:       renderAssets,
+  team:         renderTeam,
+  budget:       renderBudget,
+  plan:         renderPlan,
+  kpi:          renderKPI,
+};
+
+// state field → sections that depend on it. Used by realtime to skip work
+// when an inbound payload only touches a field that no visible section cares
+// about (e.g. unrelated cache fields).
+const STATE_DEPS = {
+  events:       ['dashboard', 'calendar'],
+  todos:        ['dashboard', 'todos'],
+  tracks:       ['dashboard', 'catalogue'],
+  inspirations: ['inspirations'],
+  clips:        ['clips'],
+  capsules:     ['capsules'],
+  assets:       ['assets'],
+  team:         ['team', 'dashboard'],
+  budget:       ['budget'],
+  plan:         ['plan'],
+  kpi:          ['kpi'],
+  user:         ['profile'],
+  streak:       ['dashboard'],
+  tagFilter:    ['calendar', 'todos', 'dashboard'],
+};
+
+function renderAll(opts) {
+  const only = (opts && Array.isArray(opts.only)) ? new Set(opts.only) : null;
+  for (const name in RENDER_SECTIONS) {
+    if (only && !only.has(name)) continue;
+    try { RENDER_SECTIONS[name](); } catch (e) { console.error('[Render] ' + name + ' failed:', e); }
   }
+}
+
+// rAF-coalesced renderer. Multiple calls in the same tick collapse into one
+// pass. A pending narrow render is promoted to full if anything later asks
+// for a full pass. Used by the realtime handler so a burst of 5+ payloads
+// (e.g. someone batch-saving) renders once, not five times.
+let _renderQueueScopes = null;
+let _renderQueueFrame = null;
+let _renderQueueFull = false;
+function requestRender(opts) {
+  const scopes = (opts && Array.isArray(opts.only)) ? opts.only : null;
+  if (scopes === null) {
+    _renderQueueFull = true;
+    _renderQueueScopes = null;
+  } else if (!_renderQueueFull) {
+    if (_renderQueueScopes === null) _renderQueueScopes = scopes.slice();
+    else for (const s of scopes) {
+      if (!_renderQueueScopes.includes(s)) _renderQueueScopes.push(s);
+    }
+  }
+  if (_renderQueueFrame !== null) return;
+  _renderQueueFrame = requestAnimationFrame(() => {
+    const wasFull = _renderQueueFull;
+    const scopes = _renderQueueScopes;
+    _renderQueueFull = false;
+    _renderQueueScopes = null;
+    _renderQueueFrame = null;
+    renderAll(wasFull || !scopes ? undefined : { only: scopes });
+  });
+}
+
+// Compares two state snapshots and returns the list of render scopes whose
+// data changed. Falls back to a full render when comparison itself fails.
+function diffStateScopes(oldState, newState) {
+  if (!oldState || !newState) return Object.keys(RENDER_SECTIONS);
+  const out = new Set();
+  for (const key in STATE_DEPS) {
+    try {
+      const a = JSON.stringify(oldState[key]);
+      const b = JSON.stringify(newState[key]);
+      if (a !== b) for (const s of STATE_DEPS[key]) out.add(s);
+    } catch (e) {
+      // If a field can't be serialized cleanly, conservatively widen to full.
+      return Object.keys(RENDER_SECTIONS);
+    }
+  }
+  return Array.from(out);
 }
 
 // Bump streak on app open (once per day)
