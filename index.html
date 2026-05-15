@@ -8715,6 +8715,42 @@ async function fetchTeamActivity(limit) {
   } catch (e) { console.warn('[ActivityLog] team fetch failed:', e); return []; }
 }
 
+// Realtime channel for activity_log INSERTs. Replaces the 8s poll cache by
+// pushing new rows into the cache as they happen, so the team activity widget
+// updates instantly. The cache TTL still acts as a fallback — if realtime ever
+// drops, the next dashboard render forces a fresh fetch after 8s.
+let _activityChannel = null;
+function subscribeToActivityRealtime() {
+  if (!sb || !_currentUser) return;
+  if (_activityChannel) try { sb.removeChannel(_activityChannel); } catch (e) {}
+  _activityChannel = sb.channel('activity_log_changes')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'activity_log' }, (payload) => {
+      const row = payload && payload.new;
+      if (!row) return;
+      // Prepend to the in-memory cache, keep newest-first ordering, cap at 8
+      // so the dashboard widget bound doesn't grow unbounded.
+      _teamActivityCache.rows = [row, ..._teamActivityCache.rows.filter(r => r.id !== row.id)].slice(0, 8);
+      _teamActivityCache.ts = Date.now();
+      if (typeof requestRender === 'function') requestRender({ only: ['dashboard', 'profile'] });
+      // Piggy-back the mentions notification check — the realtime push is
+      // strictly more accurate than the 5-minute poll in _checkMentionsNotifs.
+      if (row.user_id && _currentUser && row.user_id !== _currentUser.id) {
+        if (typeof _canNotify === 'function' && _canNotify('mentions')) {
+          const dedupe = 'mention:' + row.id;
+          const actor = row.actor_name || 'Quelqu\'un';
+          const body = actor + ' → ' + (row.subject_title || row.kind);
+          if (typeof _notifyOnce === 'function') _notifyOnce(dedupe, 'Nouvelle activité équipe', { body, tag: dedupe });
+        }
+      }
+    })
+    .subscribe((status) => {
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        // Light backoff — activity is non-critical, fall back to the cache TTL.
+        setTimeout(() => { if (sb && _currentUser) subscribeToActivityRealtime(); }, 5000);
+      }
+    });
+}
+
 // Resolve the display name for an actor by user_id. Caches the result so we
 // don't hit the profiles table for the same user across multiple rows.
 const _actorNameCache = new Map(); // userId → { name, initial }
@@ -9680,6 +9716,7 @@ async function signOutUser() {
     try { await sb.auth.signOut(); } catch (e) {}
   }
   if (_realtimeChannel) { try { sb.removeChannel(_realtimeChannel); } catch (e) {} _realtimeChannel = null; }
+  if (_activityChannel) { try { sb.removeChannel(_activityChannel); } catch (e) {} _activityChannel = null; }
   _currentUser = null;
   _currentProfile = null;
   location.reload();
@@ -9698,6 +9735,7 @@ async function enterApp() {
     renderAll();
     subscribeToWorkspaceRealtime();
     if (typeof subscribeToPresenceRealtime === 'function') subscribeToPresenceRealtime();
+    if (typeof subscribeToActivityRealtime === 'function') subscribeToActivityRealtime();
     if (typeof startNotificationDelivery === 'function') startNotificationDelivery();
     // Sentry — tag the user so issues are attributable. No-op if Sentry isn't initialized.
     if (typeof identifySentryUser === 'function') identifySentryUser();
@@ -13296,9 +13334,13 @@ function _checkDeadlinesNotifs(now) {
 
 // Mentions — proxy: a new activity_log row created by someone other than me
 // in the last 5 minutes. (Real @mentions are out of scope for this round.)
+// Acts as a fallback when the activity_log realtime channel is disconnected;
+// dedupe via _notifyOnce makes the redundancy harmless when both run.
 async function _checkMentionsNotifs() {
   if (!_canNotify('mentions')) return;
   if (!sb || !_currentUser || !_currentUser.id) return;
+  // Skip when realtime is healthy — the channel pushes inserts faster than this poll.
+  if (_activityChannel && _activityChannel.state === 'joined') return;
   const sinceIso = new Date(Date.now() - 5 * 60 * 1000).toISOString();
   try {
     const { data, error } = await sb
