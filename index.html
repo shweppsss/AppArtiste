@@ -4961,6 +4961,81 @@
     line-height: 1.5;
   }
   .role-widget-empty strong { color: var(--text-soft); font-weight: 600; }
+
+  /* TEAM ACTIVITY FEED — small timeline of recent audit log entries
+     across the whole team. Lives on the dashboard as a dash-block. */
+  .dash-team-activity[hidden] { display: none; }
+  .team-activity-list {
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .team-activity-item {
+    display: grid;
+    grid-template-columns: 30px 1fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-soft);
+    cursor: pointer;
+    transition: background var(--duration-fast) var(--ease-standard);
+  }
+  .team-activity-item:last-child { border-bottom: none; }
+  .team-activity-item:hover { background: rgba(255,255,255,0.025); }
+  .team-activity-item[data-no-link="1"] { cursor: default; }
+  .team-activity-item[data-no-link="1"]:hover { background: transparent; }
+  .team-activity-avatar {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background-size: cover;
+    background-position: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font: 700 12px/1 "SF Pro Display", sans-serif;
+    color: var(--text);
+    border: 1px solid var(--border-soft);
+    position: relative;
+    flex-shrink: 0;
+  }
+  .team-activity-avatar.has-image { color: transparent; }
+  .team-activity-body {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .team-activity-line {
+    font: var(--font-body);
+    color: var(--text);
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .team-activity-line strong { font-weight: 600; }
+  .team-activity-line em {
+    font-style: normal;
+    color: var(--text-soft);
+    margin-left: 2px;
+  }
+  .team-activity-line .ta-subject { color: var(--accent); }
+  .team-activity-when {
+    font: var(--font-caption);
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .team-activity-empty {
+    padding: 24px 16px;
+    color: var(--text-dim);
+    font: var(--font-caption);
+    text-align: center;
+  }
   .dash-block-head {
     display: flex;
     align-items: baseline;
@@ -6268,6 +6343,17 @@
            le rôle du viewer. Vide pour 'autre'; manager voit un overview.
            Chaque widget = entry dans le DASHBOARD_WIDGETS registry (data-driven). -->
       <section class="dash-role-widgets" id="dashboardRoleWidgets"></section>
+
+      <!-- TEAM ACTIVITY FEED — fil temps réel des actions équipe (lit
+           public.activity_log). Hidden tant que la migration 008 n'est pas
+           appliquée OU qu'aucune entrée n'a été écrite. -->
+      <section class="dash-block dash-team-activity" id="teamActivitySection" hidden>
+        <header class="dash-block-head">
+          <h2>Activité de l'équipe</h2>
+          <span class="dash-block-meta" id="teamActivityMeta">—</span>
+        </header>
+        <div class="team-activity-list" id="teamActivityList"></div>
+      </section>
 
       <!-- AUJOURD'HUI -->
       <section class="dash-block">
@@ -8182,6 +8268,120 @@ async function fetchUserActivity(userId, limit) {
   } catch (e) { console.warn('[ActivityLog] fetch failed:', e); return []; }
 }
 
+// Team-wide activity (everyone's audit rows, latest first). Used by the
+// dashboard "Activité de l'équipe" widget. Cached briefly in memory so
+// rapid dashboard re-renders don't hammer the DB.
+let _teamActivityCache = { ts: 0, rows: [] };
+async function fetchTeamActivity(limit) {
+  if (!sb) return [];
+  // 8-second cache — enough to coalesce the burst that follows a save()/
+  // realtime sync, while staying fresh enough that brand-new actions show
+  // up almost immediately on the next render.
+  if (Date.now() - _teamActivityCache.ts < 8000 && _teamActivityCache.rows.length) {
+    return _teamActivityCache.rows;
+  }
+  try {
+    const { data, error } = await sb.from('activity_log')
+      .select('id, user_id, kind, subject_id, subject_title, metadata, created_at')
+      .order('created_at', { ascending: false })
+      .limit(limit || 8);
+    if (error) throw error;
+    _teamActivityCache = { ts: Date.now(), rows: data || [] };
+    return _teamActivityCache.rows;
+  } catch (e) { console.warn('[ActivityLog] team fetch failed:', e); return []; }
+}
+
+// Resolve the display name for an actor by user_id. Caches the result so we
+// don't hit the profiles table for the same user across multiple rows.
+const _actorNameCache = new Map(); // userId → { name, initial }
+async function resolveActorName(userId) {
+  if (!userId) return { name: 'Quelqu\'un', initial: '?' };
+  if (_actorNameCache.has(userId)) return _actorNameCache.get(userId);
+  // Try the current viewer first — no fetch needed
+  if (_currentUser && _currentUser.id === userId) {
+    const name = (_currentProfile && _currentProfile.name) || (_currentUser.email || '').split('@')[0] || 'Toi';
+    const info = { name, initial: (name[0] || '?').toUpperCase() };
+    _actorNameCache.set(userId, info);
+    return info;
+  }
+  try {
+    const { data } = await sb.from('profiles').select('name, alias').eq('id', userId).maybeSingle();
+    const name = (data && (data.alias || data.name)) || 'Membre';
+    const info = { name, initial: (name[0] || '?').toUpperCase() };
+    _actorNameCache.set(userId, info);
+    return info;
+  } catch (e) {
+    const info = { name: 'Membre', initial: '?' };
+    _actorNameCache.set(userId, info);
+    return info;
+  }
+}
+
+// French verb per activity kind. The actor name + verb + subject form the
+// natural-language line "Chouaib a terminé Mix Comme un enfant".
+function _activityVerb(kind) {
+  switch (kind) {
+    case 'todo_done':       return 'a terminé';
+    case 'todo_created':    return 'a créé la tâche';
+    case 'event_created':   return 'a programmé';
+    case 'event_updated':   return 'a mis à jour';
+    case 'profile_updated': return 'a mis à jour son profil';
+    default:                return 'a fait';
+  }
+}
+
+async function renderTeamActivity() {
+  const section = document.getElementById('teamActivitySection');
+  const list = document.getElementById('teamActivityList');
+  const meta = document.getElementById('teamActivityMeta');
+  if (!section || !list) return;
+  // Without an auth session there's nothing to show.
+  if (!_currentUser) { section.hidden = true; return; }
+  const rows = await fetchTeamActivity(8);
+  if (!rows || rows.length === 0) {
+    // Hide entirely until the team has at least one tracked action
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
+  if (meta) meta.textContent = rows.length === 1 ? '1 action récente' : (rows.length + ' actions récentes');
+
+  // Resolve actor names in parallel
+  const actors = await Promise.all(rows.map(r => resolveActorName(r.user_id)));
+
+  list.innerHTML = rows.map((r, i) => {
+    const actor = actors[i] || { name: 'Membre', initial: '?' };
+    const verb = _activityVerb(r.kind);
+    const subject = r.subject_title ? escapeHtml(r.subject_title) : '';
+    const subjectHtml = subject ? ` <span class="ta-subject">${subject}</span>` : '';
+    const when = r.created_at ? _formatRelativeShort(r.created_at) : '';
+    const onclick = _activitySubjectOnclick(r);
+    const noLink = onclick ? '0' : '1';
+    return `
+      <div class="team-activity-item" data-no-link="${noLink}"${onclick ? ` onclick="${onclick}"` : ''}>
+        <span class="team-activity-avatar" data-actor-id="${escapeHtml(r.user_id || '')}">${escapeHtml(actor.initial)}</span>
+        <div class="team-activity-body">
+          <div class="team-activity-line"><strong>${escapeHtml(actor.name)}</strong> <em>${escapeHtml(verb)}</em>${subjectHtml}</div>
+        </div>
+        <div class="team-activity-when">${escapeHtml(when)}</div>
+      </div>
+    `;
+  }).join('');
+
+  // Upgrade the small avatars with real photos when available.
+  if (typeof getUserAvatarUrl === 'function') {
+    list.querySelectorAll('.team-activity-avatar[data-actor-id]').forEach(async (node) => {
+      const id = node.dataset.actorId;
+      if (!id) return;
+      const url = await getUserAvatarUrl(id);
+      if (url) {
+        node.style.backgroundImage = 'url(' + url + ')';
+        node.classList.add('has-image');
+      }
+    });
+  }
+}
+
 // Translate common Supabase auth errors to French. Falls back to the original
 // message if we don't have a translation — better than swallowing the detail.
 function mapAuthError(e) {
@@ -9453,6 +9653,11 @@ function renderDashboard() {
   /* ROLE WIDGETS — sections métier qui dépendent du rôle (data-driven). */
   if (typeof renderRoleWidgets === 'function') {
     try { renderRoleWidgets(); } catch (e) { console.warn('[renderRoleWidgets]', e); }
+  }
+
+  /* TEAM ACTIVITY FEED — async, ne bloque pas le render principal. */
+  if (typeof renderTeamActivity === 'function') {
+    renderTeamActivity().catch(e => console.warn('[renderTeamActivity]', e));
   }
 
   /* AUJOURD'HUI */
