@@ -13446,8 +13446,9 @@ function renderProfile() {
   // Header
   const nameEl = document.getElementById('profileName');
   if (nameEl) nameEl.textContent = vm.name;
+  // Alias is contenteditable — same anti-clobber as the textareas below.
   const aliasEl = document.getElementById('profileAlias');
-  if (aliasEl) aliasEl.textContent = vm.alias;
+  if (aliasEl && document.activeElement !== aliasEl) aliasEl.textContent = vm.alias;
   const aliasLine = document.getElementById('profileAliasLine');
   if (aliasLine) aliasLine.style.display = vm.alias ? '' : 'flex'; // always visible — placeholder shows up via :empty::before
 
@@ -13459,17 +13460,22 @@ function renderProfile() {
   const sinceEl = document.getElementById('profileSince');
   if (sinceEl) sinceEl.textContent = _relativeSinceLong(vm.since);
 
-  // Editable fields
+  // Editable fields — skip overwriting whichever the user is currently editing.
+  // renderProfile() runs on every renderAll() (realtime sync, badge eval, save
+  // success, etc.) and used to clobber in-progress typing — the user could
+  // type but their deletions seemed to "revert" because the next render fired
+  // before onblur and rewrote the stored value back into the field.
+  const active = document.activeElement;
   const bioEl = document.getElementById('profileBio');
-  if (bioEl) bioEl.value = vm.bio;
+  if (bioEl && active !== bioEl) bioEl.value = vm.bio;
   const emailEl = document.getElementById('profileEmail');
-  if (emailEl) emailEl.value = vm.email;
+  if (emailEl && active !== emailEl) emailEl.value = vm.email;
   const phoneEl = document.getElementById('profilePhone');
-  if (phoneEl) phoneEl.value = vm.phone;
+  if (phoneEl && active !== phoneEl) phoneEl.value = vm.phone;
   const specEl = document.getElementById('profileSpecialty');
-  if (specEl) specEl.value = vm.specialty;
+  if (specEl && active !== specEl) specEl.value = vm.specialty;
   const visEl = document.getElementById('profileActivityVisibility');
-  if (visEl) visEl.value = vm.activityVisibility;
+  if (visEl && active !== visEl) visEl.value = vm.activityVisibility;
 
   // Stats — derived from local state (todos / events created by me)
   renderProfileStats(vm);
