@@ -4962,6 +4962,71 @@
   }
   .role-widget-empty strong { color: var(--text-soft); font-weight: 600; }
 
+  /* TAGS — cross-cutting project/release labels on events + todos.
+     Chip = colored pill with a hue seeded from the tag label so the
+     same tag always looks identical. */
+  .tag-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 8px;
+    margin-right: 4px;
+    border-radius: 100px;
+    background: color-mix(in srgb, var(--tag-color, var(--accent)) 16%, transparent);
+    color: var(--tag-color, var(--accent));
+    border: 1px solid color-mix(in srgb, var(--tag-color, var(--accent)) 35%, transparent);
+    font: 600 10px/1.4 "SF Pro Text", sans-serif;
+    letter-spacing: 0.02em;
+    text-transform: lowercase;
+    flex-shrink: 0;
+    cursor: pointer;
+    transition: background var(--duration-fast) var(--ease-standard),
+                transform var(--duration-fast) var(--ease-standard);
+  }
+  .tag-chip:hover {
+    background: color-mix(in srgb, var(--tag-color, var(--accent)) 28%, transparent);
+    transform: translateY(-1px);
+  }
+  .tag-chip.is-active {
+    background: color-mix(in srgb, var(--tag-color, var(--accent)) 38%, transparent);
+    color: var(--bg);
+  }
+  .tag-chip-more {
+    --tag-color: var(--text-soft);
+    background: transparent;
+    border-color: var(--border-soft);
+    color: var(--text-soft);
+    cursor: default;
+  }
+  .tag-chip-more:hover { transform: none; }
+
+  /* Tags bar on top of calendar + todos pages — clickable filter */
+  .tags-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    padding: 10px 0 4px;
+  }
+  .tags-bar-label {
+    font: var(--font-micro);
+    letter-spacing: var(--tracking-micro);
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-right: 4px;
+  }
+  .tags-bar .tag-chip {
+    font-size: 11px;
+    padding: 3px 10px;
+  }
+  .tags-bar-clear {
+    font: var(--font-caption);
+    color: var(--text-dim);
+    cursor: pointer;
+    margin-left: 4px;
+    text-decoration: underline;
+  }
+  .tags-bar-clear:hover { color: var(--text); }
+
   /* BADGES — gallery on profile page + reveal overlay.
      Earned badges in full color; locked ones desaturated. */
   .profile-badges {
@@ -6735,6 +6800,8 @@
           <button type="button" class="cal-view-tab" id="calViewWeek" onclick="setCalView('week')">Semaine</button>
         </div>
       </div>
+      <!-- Tags bar — auto-derived from current events+todos. Click to filter. -->
+      <div class="tags-bar" id="tagsBar"></div>
       <div class="calendar-grid" id="calendarGrid"></div>
       <div class="legend">
         <div><span class="legend-dot" style="background: var(--accent);"></span>Sortie</div>
@@ -6965,6 +7032,10 @@
       <div class="field">
         <label>Avec (personnes, optionnel)</label>
         <input id="eventWith" placeholder="Degzzy, journaliste X, label Y..." />
+      </div>
+      <div class="field">
+        <label>Tags <span class="auth-field-optional">séparés par virgule</span></label>
+        <input id="eventTags" placeholder="ex: rich, comme-un-enfant" autocomplete="off" />
       </div>
       <div class="field">
         <label>Visibilité</label>
@@ -10329,6 +10400,87 @@ function isTodoOnDashboard(todo, roleKey) {
 }
 
 /* ============================
+   TAGS — projet/release labels qui se propagent sur events + todos.
+   Stockés en plain text array sur chaque entité (e.g. event.tags). Le
+   catalogue d'équipe est dérivé à la volée des entités existantes — pas
+   besoin d'une table SQL ni d'une UI de gestion dédiée.
+
+   Format en input : comma-separated "RICH, comme-un-enfant".
+   Normalisation : lowercase, trim, hyphenate, dedup.
+   Filter global : state.tagFilter contient un tag actif ou null.
+   ============================ */
+function _normalizeTagLabel(s) {
+  if (!s) return '';
+  return String(s)
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9_-]/g, '')
+    .slice(0, 24);
+}
+// Convert "RICH, comme un enfant" → ['rich','comme-un-enfant'], deduped.
+function parseTagsInput(raw) {
+  if (!raw) return [];
+  const out = [];
+  const seen = new Set();
+  String(raw).split(',').forEach(part => {
+    const t = _normalizeTagLabel(part);
+    if (t && !seen.has(t)) { seen.add(t); out.push(t); }
+  });
+  return out;
+}
+// Compose array back to comma-separated for display in inputs.
+function tagsToInput(arr) {
+  return Array.isArray(arr) ? arr.join(', ') : '';
+}
+// Color seed — stable hue per tag label so the same tag always looks the same.
+function tagColor(tag) {
+  let h = 5381;
+  for (let i = 0; i < tag.length; i++) h = ((h * 33) ^ tag.charCodeAt(i)) >>> 0;
+  return 'hsl(' + (h % 360) + ', 55%, 58%)';
+}
+// Derive the team-wide tag catalog from currently-tagged entities.
+function getProjectTags() {
+  const set = new Set();
+  (state.events || []).forEach(e => { (e && e.tags || []).forEach(t => set.add(t)); });
+  (state.todos || []).forEach(t => { (t && t.tags || []).forEach(tag => set.add(tag)); });
+  return [...set].sort();
+}
+// Test if an entity matches the current tag filter (null = no filter).
+function _entityMatchesTagFilter(entity) {
+  if (!state.tagFilter) return true;
+  const tags = entity && entity.tags;
+  return Array.isArray(tags) && tags.includes(state.tagFilter);
+}
+function setTagFilter(tag) {
+  state.tagFilter = (tag && state.tagFilter !== tag) ? tag : null;
+  // Re-render the views that respect the filter
+  if (typeof renderDashboard === 'function') try { renderDashboard(); } catch (e) {}
+  if (typeof renderCalendar === 'function') try { renderCalendar(); } catch (e) {}
+  if (typeof renderTodos === 'function') try { renderTodos(); } catch (e) {}
+  if (typeof renderTagsBar === 'function') try { renderTagsBar(); } catch (e) {}
+}
+// Render the small tag chip stripe shown next to event/todo titles.
+function tagChipsHTML(tags, opts) {
+  if (!Array.isArray(tags) || !tags.length) return '';
+  const limit = (opts && opts.limit) || 2;
+  const top = tags.slice(0, limit);
+  const more = tags.length > limit ? tags.length - limit : 0;
+  return top.map(t => `<span class="tag-chip${state.tagFilter === t ? ' is-active' : ''}" style="--tag-color: ${tagColor(t)};" data-tag="${escapeHtml(t)}">${escapeHtml(t)}</span>`).join('')
+    + (more ? `<span class="tag-chip tag-chip-more">+${more}</span>` : '');
+}
+// Render the page-level tag filter bar (calendrier header).
+function renderTagsBar() {
+  const bar = document.getElementById('tagsBar');
+  if (!bar) return;
+  const tags = getProjectTags();
+  if (tags.length === 0) { bar.innerHTML = ''; return; }
+  bar.innerHTML = '<span class="tags-bar-label">Tags</span>'
+    + tags.map(t => `<span class="tag-chip${state.tagFilter === t ? ' is-active' : ''}" style="--tag-color: ${tagColor(t)};" data-tag="${escapeHtml(t)}">${escapeHtml(t)}</span>`).join('')
+    + (state.tagFilter ? '<span class="tags-bar-clear" onclick="setTagFilter(null)">effacer</span>' : '');
+}
+
+/* ============================
    DASHBOARD ROLE WIDGETS — data-driven registry of small sections that
    appear on the dashboard depending on the viewer's role. Each entry:
      id              stable identifier
@@ -11210,6 +11362,8 @@ function renderWeekView() {
       const avatar = e.createdBy ? _eventActorAvatarHTML(e.createdBy) : '';
       // Resize handle hidden for all-day pills (no duration semantic).
       const resizeHandle = allDay ? '' : '<div class="cal-week-event-resize" data-resize-handle="1"></div>';
+      // Per-event tag filter — skip rendering if it doesn't match the active tag.
+      if (!_entityMatchesTagFilter(e)) continue;
       html += `<div class="cal-week-event" data-type="${escapeHtml(e.type)}" data-visibility="${e.visibility === 'private' ? 'private' : 'team'}" data-event-id="${escapeHtml(e.id)}"
                     style="top:${top + 2}px; height:${height}px;"${tip ? ` title="${escapeHtml(tip)}"` : ''}>
         ${avatar ? `<div class="cal-week-event-actor">${avatar}</div>` : ''}
@@ -11232,6 +11386,7 @@ function renderWeekView() {
   grid.innerHTML = html;
   attachWeekInteractions();
   if (typeof upgradeEventAvatars === 'function') upgradeEventAvatars().catch(() => {});
+  if (typeof renderTagsBar === 'function') renderTagsBar();
 }
 
 function attachWeekInteractions() {
@@ -11536,13 +11691,17 @@ function renderMonthView() {
     html += `
       <div class="cal-cell ${isToday ? 'today' : ''}" data-date="${iso}">
         <div class="cal-day">${day}</div>
-        ${events.sort((a,b) => (a.time||'99:99').localeCompare(b.time||'99:99')).map(e => {
+        ${events
+          .filter(_entityMatchesTagFilter)
+          .sort((a,b) => (a.time||'99:99').localeCompare(b.time||'99:99'))
+          .map(e => {
           const tip = _eventTooltip(e);
           const avatar = e.createdBy ? _eventActorAvatarHTML(e.createdBy) : '';
           // Show duration suffix only when it's not the default 1h — keeps month pills tight.
           const dur = parseInt(e.duration, 10);
           const durSuffix = (e.time && dur && dur !== 60) ? ` <span class="cal-event-dur">(${_formatDuration(dur)})</span>` : '';
-          return `<div class="cal-event" data-type="${escapeHtml(e.type)}" data-visibility="${e.visibility === 'private' ? 'private' : 'team'}" data-event-id="${escapeHtml(e.id)}"${tip ? ` title="${escapeHtml(tip)}"` : ''}>${avatar}${e.time ? `<strong>${formatEventTime(e.time)}</strong>${durSuffix} ` : ''}${escapeHtml(e.title)}</div>`;
+          const tagHtml = (Array.isArray(e.tags) && e.tags.length) ? ' ' + tagChipsHTML(e.tags, { limit: 1 }) : '';
+          return `<div class="cal-event" data-type="${escapeHtml(e.type)}" data-visibility="${e.visibility === 'private' ? 'private' : 'team'}" data-event-id="${escapeHtml(e.id)}"${tip ? ` title="${escapeHtml(tip)}"` : ''}>${avatar}${e.time ? `<strong>${formatEventTime(e.time)}</strong>${durSuffix} ` : ''}${escapeHtml(e.title)}${tagHtml}</div>`;
         }).join('')}
       </div>
     `;
@@ -11556,6 +11715,7 @@ function renderMonthView() {
   grid.innerHTML = html;
   attachCalendarInteractions();
   if (typeof upgradeEventAvatars === 'function') upgradeEventAvatars().catch(() => {});
+  if (typeof renderTagsBar === 'function') renderTagsBar();
 }
 
 /* CALENDAR INTERACTIONS — drag&drop events between days + click-to-open.
@@ -11735,6 +11895,7 @@ function openEventModal(date = null, eventId = null) {
     document.getElementById('eventLocation').value = e.location || '';
     document.getElementById('eventWith').value = e.with || '';
     document.getElementById('eventNotes').value = e.notes || '';
+    document.getElementById('eventTags').value = tagsToInput(e.tags);
     _setEventVisibility(e.visibility === 'private' ? 'private' : 'team');
   } else {
     editingEventId = null;
@@ -11747,6 +11908,7 @@ function openEventModal(date = null, eventId = null) {
     document.getElementById('eventLocation').value = '';
     document.getElementById('eventWith').value = '';
     document.getElementById('eventNotes').value = '';
+    document.getElementById('eventTags').value = '';
     _setEventVisibility('team');
   }
 }
@@ -11960,22 +12122,24 @@ function saveEvent() {
   // current behavior (visible to all).
   const visibilityRaw = (document.getElementById('eventVisibility') || {}).value;
   const visibility = visibilityRaw === 'private' ? 'private' : 'team';
+  const tagsRaw = (document.getElementById('eventTags') || {}).value;
+  const tags = parseTagsInput(tagsRaw);
   if (!title || !date) { toast('Titre et date requis.'); return; }
   if (editingEventId) {
     const e = state.events.find(x => x.id === editingEventId);
-    Object.assign(e, { title, date, time, duration, type, location, with: withWho, notes, visibility });
+    Object.assign(e, { title, date, time, duration, type, location, with: withWho, notes, visibility, tags });
     _stampEventUpdate(e);
     // Audit log — fire-and-forget. Skipped for private events (audit feed
     // is visible to the whole team; private events shouldn't leak via it).
     if (visibility !== 'private' && typeof logActivity === 'function') {
-      logActivity({ kind: 'event_updated', subject_id: editingEventId, subject_title: title, metadata: { type, date } });
+      logActivity({ kind: 'event_updated', subject_id: editingEventId, subject_title: title, metadata: { type, date, tags } });
     }
   } else {
-    const ev = { id: 'e' + Date.now(), title, date, time, duration, type, location, with: withWho, notes, visibility };
+    const ev = { id: 'e' + Date.now(), title, date, time, duration, type, location, with: withWho, notes, visibility, tags };
     _stampEventCreate(ev);
     state.events.push(ev);
     if (visibility !== 'private' && typeof logActivity === 'function') {
-      logActivity({ kind: 'event_created', subject_id: ev.id, subject_title: title, metadata: { type, date } });
+      logActivity({ kind: 'event_created', subject_id: ev.id, subject_title: title, metadata: { type, date, tags } });
     }
   }
   save();
@@ -12919,6 +13083,8 @@ function renderTodos() {
   if (filter === 'urgent') visible = visible.filter(t => t.urgent && !t.done);
   else if (filter === 'done') visible = visible.filter(t => t.done);
   else if (filter !== 'all') visible = visible.filter(t => t.cat === filter);
+  // Active tag filter (top-level — kept independently from category chips)
+  if (state.tagFilter) visible = visible.filter(_entityMatchesTagFilter);
 
   let html = '';
 
@@ -13022,13 +13188,14 @@ function todoItemHTML(t) {
     !t.done && priority === 'critique' ? '<span class="list-row-badge is-critical" aria-label="Critique" title="Critique">⛔</span>' :
     !t.done && priority === 'urgent'   ? `<span class="list-row-badge is-urgent" aria-label="Urgent">${icon('bolt', 11)}</span>` :
     '';
+  const tagHtml = (Array.isArray(t.tags) && t.tags.length) ? ' ' + tagChipsHTML(t.tags, { limit: 2 }) : '';
   return `
     <button type="button" class="list-row ${modifiers}" data-id="${t.id}" data-kind="todo" data-action="open" data-priority="${priority}" aria-label="${escapeHtml(t.text)}">
       <span class="list-row-lead" data-action="toggle-todo" role="checkbox" aria-checked="${t.done ? 'true' : 'false'}" aria-label="Marquer comme ${t.done ? 'à faire' : 'fait'}">
         <span class="list-row-check">${t.done ? icon('check', 14) : ''}</span>
       </span>
       <span class="list-row-body">
-        <span class="list-row-title">${escapeHtml(t.text)}</span>
+        <span class="list-row-title">${escapeHtml(t.text)}${tagHtml}</span>
         <span class="list-row-sub ${dueClass}">${subBits.join('<span class="sep">·</span>')}</span>
       </span>
       <span class="list-row-trail">
@@ -14715,6 +14882,7 @@ function detailTodoHTML(t) {
         </div>
         <div class="detail-field"><label>Échéance</label><input type="date" value="${t.due || ''}" onchange="updateTodoField('${t.id}','due',this.value)" /></div>
       </div>
+      <div class="detail-field"><label>Tags <span class="profile-field-hint">séparés par virgule</span></label><input value="${escapeHtml(tagsToInput(t.tags))}" onblur="updateTodoTags('${t.id}', this.value)" placeholder="ex: rich, single" /></div>
       <div class="detail-field"><label>Notes (optionnel)</label><textarea onblur="updateTodoField('${t.id}','notes',this.value)">${escapeHtml(t.notes || '')}</textarea></div>
     </div>
 
@@ -14723,6 +14891,14 @@ function detailTodoHTML(t) {
       <button class="btn btn-danger" onclick="deleteTodo('${t.id}'); closeDetail();">Supprimer</button>
     </div>
   `;
+}
+function updateTodoTags(id, value) {
+  const t = state.todos.find(x => x.id === id);
+  if (!t) return;
+  t.tags = parseTagsInput(value);
+  save();
+  if (typeof renderTodos === 'function') renderTodos();
+  if (typeof renderDashboard === 'function') renderDashboard();
 }
 function updateTodoField(id, field, v) {
   const t = state.todos.find(x => x.id === id);
@@ -14977,6 +15153,18 @@ document.addEventListener('click', (e) => {
   if (e.target.id === 'eventModal' && typeof closeEventModal === 'function') closeEventModal();
   else if (e.target.id === 'inspiModal' && typeof closeInspiModal === 'function') closeInspiModal();
 });
+
+// Tag chip click delegate — clicking any .tag-chip toggles the global
+// tag filter. Stops propagation so it doesn't also trigger the parent
+// row's openDetail() handler.
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest && e.target.closest('.tag-chip');
+  if (!chip || chip.classList.contains('tag-chip-more')) return;
+  const tag = chip.dataset.tag;
+  if (!tag) return;
+  e.stopPropagation();
+  if (typeof setTagFilter === 'function') setTagFilter(tag);
+}, true);
 
 // ESC key closes any open modal — Apple-grade keyboard support
 document.addEventListener('keydown', (e) => {
