@@ -4830,6 +4830,137 @@
   /* Block sections */
   .dash-block { margin-top: var(--space-10); margin-bottom: 0; }
   .dash-block:last-child { margin-bottom: var(--space-12); }
+
+  /* ============================
+     ROLE WIDGETS — role-specific dashboard sections.
+     Two-col grid on desktop, single-col mobile. Each widget is a glass card
+     with a header + body. Bodies render small clickable items.
+     ============================ */
+  .dash-role-widgets {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-4);
+    margin-top: var(--space-8);
+  }
+  .dash-role-widgets:empty { display: none; margin-top: 0; }
+  @media (max-width: 820px) {
+    .dash-role-widgets { grid-template-columns: 1fr; }
+  }
+  .role-widget {
+    padding: var(--space-5);
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    transition: border-color var(--duration-fast) var(--ease-standard);
+  }
+  .role-widget:hover { border-color: var(--border-strong); }
+  .role-widget-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+  .role-widget-head h3 {
+    font: var(--font-body-l);
+    font-weight: 600;
+    letter-spacing: var(--tracking-body-l);
+    color: var(--text);
+    margin: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .role-widget-head .role-widget-icon {
+    font-size: 16px;
+    opacity: 0.9;
+    line-height: 1;
+  }
+  .role-widget-count {
+    font: var(--font-caption);
+    color: var(--text-soft);
+    background: rgba(var(--accent-rgb), 0.08);
+    border: 1px solid rgba(var(--accent-rgb), 0.18);
+    padding: 2px 8px;
+    border-radius: 100px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+  .role-widget-count[data-empty="1"] {
+    background: transparent;
+    border-color: var(--border-soft);
+    color: var(--text-dim);
+  }
+  .role-widget-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .role-widget-item {
+    display: grid;
+    grid-template-columns: 22px 1fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 10px;
+    margin: 0 -10px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background var(--duration-fast) var(--ease-standard);
+  }
+  .role-widget-item:hover { background: rgba(255,255,255,0.03); }
+  .role-widget-item-icon {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: rgba(var(--accent-rgb), 0.10);
+    border: 1px solid rgba(var(--accent-rgb), 0.22);
+    color: var(--accent);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .role-widget-item[data-kind="done"] .role-widget-item-icon {
+    background: rgba(48,209,88,0.12);
+    border-color: rgba(48,209,88,0.32);
+    color: var(--success);
+  }
+  .role-widget-item[data-priority="critique"] .role-widget-item-icon {
+    background: rgba(255,69,58,0.12);
+    border-color: rgba(255,69,58,0.32);
+    color: var(--danger);
+  }
+  .role-widget-item-body { min-width: 0; }
+  .role-widget-item-title {
+    font: var(--font-body);
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .role-widget-item-sub {
+    font: var(--font-caption);
+    color: var(--text-dim);
+    margin-top: 1px;
+  }
+  .role-widget-item-meta {
+    font: var(--font-caption);
+    color: var(--text-soft);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .role-widget-empty {
+    padding: 14px 8px;
+    color: var(--text-dim);
+    font: var(--font-caption);
+    text-align: left;
+    line-height: 1.5;
+  }
+  .role-widget-empty strong { color: var(--text-soft); font-weight: 600; }
   .dash-block-head {
     display: flex;
     align-items: baseline;
@@ -6132,6 +6263,11 @@
 
       <!-- URGENT inline — n'apparaît QUE s'il y a au moins une urgence -->
       <section class="dash-urgent" id="urgentBox" hidden></section>
+
+      <!-- ROLE-SPECIFIC WIDGETS — sections métier qui apparaissent selon
+           le rôle du viewer. Vide pour 'autre'; manager voit un overview.
+           Chaque widget = entry dans le DASHBOARD_WIDGETS registry (data-driven). -->
+      <section class="dash-role-widgets" id="dashboardRoleWidgets"></section>
 
       <!-- AUJOURD'HUI -->
       <section class="dash-block">
@@ -9314,6 +9450,11 @@ function renderDashboard() {
     }
   }
 
+  /* ROLE WIDGETS — sections métier qui dépendent du rôle (data-driven). */
+  if (typeof renderRoleWidgets === 'function') {
+    try { renderRoleWidgets(); } catch (e) { console.warn('[renderRoleWidgets]', e); }
+  }
+
   /* AUJOURD'HUI */
   const todayIso = today.toISOString().slice(0,10);
   const todayEvents = events
@@ -9682,6 +9823,263 @@ function isTodoOnDashboard(todo, roleKey) {
   if (todoPriority(todo) === 'critique') return true;
   return isTodoRoleRelevant(todo, roleKey);
 }
+
+/* ============================
+   DASHBOARD ROLE WIDGETS — data-driven registry of small sections that
+   appear on the dashboard depending on the viewer's role. Each entry:
+     id              stable identifier
+     title           displayed in the widget header
+     icon            single character / emoji shown left of the title
+     roles           array of role keys this widget applies to ('*' = all)
+     dataset         'todos' | 'events'
+     filter          (item, ctx) => boolean
+     limit           max items rendered (default 5)
+     emptyMessage    HTML shown when filter returns no items
+     subFor          (item) => string         optional sub-line
+     metaFor         (item) => string         optional right-side meta
+     iconForKind     'todo' | 'event'         used in the item icon
+   To add a new widget, append an entry — no other code touches.
+   ============================ */
+function _todoMatches(t, patterns) {
+  if (!t || t.done) return false;
+  const text = (t.text || '').toLowerCase();
+  return patterns.some(p => text.includes(p));
+}
+function _isFutureOrTodayEvent(e, now) {
+  if (!e || !e.date) return false;
+  if (typeof isFutureOrToday === 'function') return isFutureOrToday(e.date, now);
+  return e.date >= (now || new Date()).toISOString().slice(0, 10);
+}
+function _formatTodoSub(t) {
+  const bits = [];
+  if (t.cat) bits.push(t.cat);
+  const p = (typeof todoPriority === 'function') ? todoPriority(t) : '';
+  if (p === 'critique') bits.push('⛔ Critique');
+  else if (p === 'urgent') bits.push('⚡ Urgent');
+  return bits.join(' · ');
+}
+function _formatEventSub(e) {
+  const bits = [];
+  if (typeof typeLabel === 'function' && e.type) bits.push(typeLabel(e.type));
+  if (e.location) bits.push(e.location);
+  return bits.join(' · ');
+}
+function _todoDueMeta(t) {
+  if (!t.due) return '';
+  if (typeof formatDate !== 'function') return t.due;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const d = new Date(t.due);
+  const diff = Math.ceil((d - today) / 86400000);
+  if (diff < 0) return 'En retard';
+  if (diff === 0) return "Aujourd'hui";
+  if (diff === 1) return 'Demain';
+  if (diff <= 7) return 'J-' + diff;
+  return formatDate(t.due);
+}
+function _eventDueMeta(e) {
+  if (typeof formatDate !== 'function') return e.date || '';
+  const today = new Date(); today.setHours(0,0,0,0);
+  const d = new Date(e.date);
+  const diff = Math.ceil((d - today) / 86400000);
+  if (diff < 0) return 'Passé';
+  if (diff === 0) return "Aujourd'hui";
+  if (diff === 1) return 'Demain';
+  if (diff <= 14) return 'J-' + diff;
+  return formatDate(e.date);
+}
+
+const DASHBOARD_WIDGETS = [
+  // INGÉ SON
+  {
+    id: 'audio-mixes', title: 'Mix à rendre', icon: '🎚️',
+    roles: ['ingenieur-son'], dataset: 'todos',
+    filter: (t) => _todoMatches(t, ['mix','mixer','mixs']),
+    emptyMessage: 'Aucun mix en cours. <strong>Cool 🧊</strong>',
+    subFor: _formatTodoSub, metaFor: _todoDueMeta, iconKind: 'todo',
+  },
+  {
+    id: 'audio-masters', title: 'Masters en attente', icon: '🎛️',
+    roles: ['ingenieur-son'], dataset: 'todos',
+    filter: (t) => _todoMatches(t, ['master','mastering']),
+    emptyMessage: 'Pas de master en attente.',
+    subFor: _formatTodoSub, metaFor: _todoDueMeta, iconKind: 'todo',
+  },
+  {
+    id: 'audio-sessions', title: 'Sessions studio à venir', icon: '🎙️',
+    roles: ['ingenieur-son','producteur','artiste'], dataset: 'events',
+    filter: (e) => _isFutureOrTodayEvent(e, new Date()) && (e.type === 'studio' || /studio/i.test(e.title || '')),
+    emptyMessage: 'Pas de session studio planifiée.',
+    subFor: _formatEventSub, metaFor: _eventDueMeta, iconKind: 'event',
+  },
+  // PRODUCTEUR — partage sessions studio (above) + beats
+  {
+    id: 'producer-beats', title: 'Beats / Instrus en cours', icon: '🥁',
+    roles: ['producteur'], dataset: 'todos',
+    filter: (t) => _todoMatches(t, ['beat','instru','instrument','prod','sample']),
+    emptyMessage: 'Aucun beat en cours.',
+    subFor: _formatTodoSub, metaFor: _todoDueMeta, iconKind: 'todo',
+  },
+  // RÉALISATEUR
+  {
+    id: 'video-clips', title: 'Clips à tourner', icon: '🎬',
+    roles: ['realisateur'], dataset: 'todos',
+    filter: (t) => _todoMatches(t, ['clip','tournage','shoot','plan','rush','tourner']),
+    emptyMessage: 'Pas de clip programmé.',
+    subFor: _formatTodoSub, metaFor: _todoDueMeta, iconKind: 'todo',
+  },
+  {
+    id: 'video-shoots', title: 'Shoots à venir', icon: '📷',
+    roles: ['realisateur','graphiste','artiste'], dataset: 'events',
+    filter: (e) => _isFutureOrTodayEvent(e, new Date()) && e.type === 'shoot',
+    emptyMessage: 'Pas de shoot prévu.',
+    subFor: _formatEventSub, metaFor: _eventDueMeta, iconKind: 'event',
+  },
+  // MONTEUR
+  {
+    id: 'video-cuts', title: 'Montages en cours', icon: '🎞️',
+    roles: ['monteur','realisateur'], dataset: 'todos',
+    filter: (t) => _todoMatches(t, ['montage','monter','cut','timeline','color','exports']),
+    emptyMessage: 'Aucun montage en cours.',
+    subFor: _formatTodoSub, metaFor: _todoDueMeta, iconKind: 'todo',
+  },
+  // GRAPHISTE
+  {
+    id: 'design-covers', title: 'Covers à produire', icon: '🎨',
+    roles: ['graphiste'], dataset: 'todos',
+    filter: (t) => _todoMatches(t, ['cover','pochette','illu','illustration']),
+    emptyMessage: 'Pas de cover en cours.',
+    subFor: _formatTodoSub, metaFor: _todoDueMeta, iconKind: 'todo',
+  },
+  {
+    id: 'design-assets', title: 'Assets manquants', icon: '⬚',
+    roles: ['graphiste'], dataset: 'todos',
+    filter: (t) => _todoMatches(t, ['asset','visuel','thumbnail','flyer','branding','logo','typo']),
+    emptyMessage: 'Tous les assets sont livrés.',
+    subFor: _formatTodoSub, metaFor: _todoDueMeta, iconKind: 'todo',
+  },
+  // COMMUNITY MANAGER
+  {
+    id: 'cm-posts', title: 'Posts à publier', icon: '📲',
+    roles: ['community-manager'], dataset: 'todos',
+    filter: (t) => _todoMatches(t, ['post','story','reel','tiktok','insta','caption','tweet','programmer']),
+    emptyMessage: 'File de publication vide.',
+    subFor: _formatTodoSub, metaFor: _todoDueMeta, iconKind: 'todo',
+  },
+  {
+    id: 'cm-campaigns', title: 'Campagnes actives', icon: '🚀',
+    roles: ['community-manager','manager'], dataset: 'todos',
+    filter: (t) => _todoMatches(t, ['campagne','campaign','teaser','promo']),
+    emptyMessage: 'Aucune campagne en cours.',
+    subFor: _formatTodoSub, metaFor: _todoDueMeta, iconKind: 'todo',
+  },
+  // ARTISTE
+  {
+    id: 'artist-interviews', title: 'Interviews / podcasts', icon: '🎤',
+    roles: ['artiste','community-manager','manager'], dataset: 'events',
+    filter: (e) => _isFutureOrTodayEvent(e, new Date()) && ['interview','podcast','listening'].includes(e.type),
+    emptyMessage: 'Rien de prévu côté presse.',
+    subFor: _formatEventSub, metaFor: _eventDueMeta, iconKind: 'event',
+  },
+  // MANAGER — overview cards
+  {
+    id: 'manager-critical', title: 'Tâches critiques équipe', icon: '⛔',
+    roles: ['manager'], dataset: 'todos',
+    filter: (t) => !t.done && todoPriority(t) === 'critique',
+    emptyMessage: 'Aucune tâche critique. <strong>Clean.</strong>',
+    subFor: _formatTodoSub, metaFor: _todoDueMeta, iconKind: 'todo',
+  },
+  {
+    id: 'manager-late', title: 'Tâches en retard', icon: '⏰',
+    roles: ['manager'], dataset: 'todos',
+    filter: (t) => {
+      if (t.done || !t.due) return false;
+      const today = new Date(); today.setHours(0,0,0,0);
+      return new Date(t.due) < today;
+    },
+    emptyMessage: 'Aucune tâche en retard. Tu maintiens le rythme.',
+    subFor: _formatTodoSub, metaFor: _todoDueMeta, iconKind: 'todo',
+  },
+  {
+    id: 'manager-releases', title: 'Releases à venir', icon: '🎯',
+    roles: ['manager','artiste','community-manager'], dataset: 'events',
+    filter: (e) => _isFutureOrTodayEvent(e, new Date()) && e.type === 'release',
+    emptyMessage: 'Aucune release programmée.',
+    subFor: _formatEventSub, metaFor: _eventDueMeta, iconKind: 'event',
+  },
+];
+
+function renderRoleWidgets() {
+  const container = document.getElementById('dashboardRoleWidgets');
+  if (!container) return;
+  const roleKey = (typeof getCurrentRoleKey === 'function') ? getCurrentRoleKey() : 'autre';
+  // 'autre' deliberately has zero role widgets — the standard dashboard
+  // sections (urgent + today + upcoming) cover that case already.
+  if (roleKey === 'autre') {
+    container.innerHTML = '';
+    return;
+  }
+  const todos = filterVisibleTodos(Array.isArray(state.todos) ? state.todos : []);
+  const events = (typeof filterVisibleEvents === 'function')
+    ? filterVisibleEvents(Array.isArray(state.events) ? state.events : [])
+    : (Array.isArray(state.events) ? state.events : []);
+  const applicable = DASHBOARD_WIDGETS.filter(w => w.roles.includes(roleKey) || w.roles.includes('*'));
+  if (applicable.length === 0) { container.innerHTML = ''; return; }
+  const html = applicable.map(w => {
+    const dataset = w.dataset === 'events' ? events : todos;
+    const items = dataset.filter(item => {
+      try { return w.filter(item); } catch (e) { console.warn('[widget filter]', w.id, e); return false; }
+    });
+    const limit = w.limit || 5;
+    const top = items.slice(0, limit);
+    const isEmpty = items.length === 0;
+    const countLabel = isEmpty ? '0' : (items.length > limit ? top.length + ' / ' + items.length : String(items.length));
+    return `
+      <div class="role-widget" data-widget="${escapeHtml(w.id)}">
+        <header class="role-widget-head">
+          <h3><span class="role-widget-icon" aria-hidden="true">${w.icon}</span>${escapeHtml(w.title)}</h3>
+          <span class="role-widget-count" data-empty="${isEmpty ? '1' : '0'}">${countLabel}</span>
+        </header>
+        <div class="role-widget-body">
+          ${isEmpty
+            ? `<div class="role-widget-empty">${w.emptyMessage || 'Rien à signaler.'}</div>`
+            : top.map(item => _renderRoleWidgetItem(item, w)).join('')
+          }
+        </div>
+      </div>
+    `;
+  }).join('');
+  container.innerHTML = html;
+}
+
+function _renderRoleWidgetItem(item, widget) {
+  const isEvent = widget.iconKind === 'event';
+  const onclick = isEvent
+    ? "openDetail('event','" + item.id + "')"
+    : "openDetail('todo','" + item.id + "')";
+  const priority = (!isEvent && typeof todoPriority === 'function') ? todoPriority(item) : '';
+  const kind = !isEvent && item.done ? 'done' : '';
+  const icon = isEvent ? '📅' : (item.done ? '✓' : (priority === 'critique' ? '⛔' : priority === 'urgent' ? '⚡' : '◇'));
+  const sub = widget.subFor ? widget.subFor(item) : '';
+  const meta = widget.metaFor ? widget.metaFor(item) : '';
+  return `
+    <div class="role-widget-item"
+         data-kind="${escapeHtml(kind)}"
+         data-priority="${escapeHtml(priority)}"
+         onclick="${onclick}">
+      <span class="role-widget-item-icon" aria-hidden="true">${icon}</span>
+      <div class="role-widget-item-body">
+        <div class="role-widget-item-title">${escapeHtml(isEvent ? (item.title || '—') : (item.text || '—'))}</div>
+        ${sub ? `<div class="role-widget-item-sub">${escapeHtml(sub)}</div>` : ''}
+      </div>
+      ${meta ? `<div class="role-widget-item-meta">${escapeHtml(meta)}</div>` : ''}
+    </div>
+  `;
+}
+
+// Visibility helper for todos. Today todos don't have a per-todo visibility flag —
+// they're a team-wide list — so this is just an identity passthrough. Kept as a
+// hook for future Phase 2B-2 where todos may grow a visibility field.
+function filterVisibleTodos(todos) { return Array.isArray(todos) ? todos.filter(Boolean) : []; }
 function formatEventTime(time) {
   if (!time) return '';
   return time.slice(0, 5);
