@@ -1254,6 +1254,374 @@
     border-left: 2px solid var(--accent);
   }
 
+  /* ============================
+     PROFILE — "Mon espace" personal hub
+     Premium hero + stats grid + section cards. Uses existing glass tokens
+     so it slots into the rest of the app without breaking the DA.
+     ============================ */
+  .profile-hero {
+    display: grid;
+    grid-template-columns: 128px 1fr;
+    gap: var(--space-6);
+    align-items: center;
+    padding: var(--space-8) var(--space-6) var(--space-8) 0;
+    margin-top: var(--space-4);
+  }
+  .profile-avatar {
+    position: relative;
+    width: 128px;
+    height: 128px;
+    border-radius: 50%;
+    border: 1px solid var(--border-strong);
+    background: var(--glass-bg-strong);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    cursor: pointer;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text);
+    font: 700 48px/1 "SF Pro Display", -apple-system, sans-serif;
+    letter-spacing: -0.04em;
+    flex-shrink: 0;
+    transition: transform var(--duration-base) var(--ease-emphasized),
+                border-color var(--duration-fast) var(--ease-standard),
+                box-shadow var(--duration-base) var(--ease-emphasized);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  }
+  .profile-avatar::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(180deg, rgba(255,255,255,0.06) 0%, transparent 50%);
+    pointer-events: none;
+  }
+  .profile-avatar:hover {
+    transform: translateY(-1px);
+    border-color: var(--accent);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4),
+                0 4px 32px -8px rgba(var(--accent-rgb), 0.45);
+  }
+  .profile-avatar.has-image .profile-avatar-initial { display: none; }
+  .profile-avatar-initial { z-index: 1; }
+  .profile-avatar-edit {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 8px 0;
+    font: var(--font-micro);
+    letter-spacing: var(--tracking-micro);
+    text-transform: uppercase;
+    background: linear-gradient(0deg, rgba(0, 0, 0, 0.65) 0%, transparent 100%);
+    color: var(--text);
+    opacity: 0;
+    transition: opacity var(--duration-fast) var(--ease-standard);
+    z-index: 2;
+  }
+  .profile-avatar:hover .profile-avatar-edit { opacity: 1; }
+
+  .profile-hero-meta {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .profile-hero-name {
+    font: var(--font-display-xl);
+    font-size: 36px;
+    letter-spacing: -0.03em;
+    color: var(--text);
+    line-height: 1.1;
+  }
+  .profile-hero-alias-line {
+    font: var(--font-body);
+    color: var(--text-dim);
+    font-style: italic;
+    line-height: 1.3;
+  }
+  .profile-aka { color: var(--text-dim); }
+  .profile-alias {
+    color: var(--text);
+    font-weight: 600;
+    font-style: italic;
+    cursor: text;
+    outline: none;
+    padding: 0 4px;
+    border-radius: 4px;
+    border-bottom: 1px dashed transparent;
+    min-width: 1em;
+    display: inline-block;
+    transition: border-color var(--duration-fast) var(--ease-standard),
+                background var(--duration-fast) var(--ease-standard);
+  }
+  .profile-alias:hover { border-bottom-color: var(--border-strong); }
+  .profile-alias:focus { border-bottom-color: var(--accent); background: var(--accent-soft); }
+  .profile-alias:empty::before {
+    content: attr(data-placeholder);
+    color: var(--text-dim);
+    font-weight: 500;
+    opacity: 0.7;
+  }
+  .profile-hero-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-top: 8px;
+  }
+  .profile-role-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px 6px 10px;
+    background: rgba(var(--accent-rgb), 0.10);
+    border: 1px solid rgba(var(--accent-rgb), 0.35);
+    border-radius: 100px;
+    color: var(--accent);
+    font: var(--font-body);
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color var(--duration-fast) var(--ease-standard),
+                background var(--duration-fast) var(--ease-standard);
+  }
+  .profile-role-badge:hover {
+    border-color: var(--accent);
+    background: rgba(var(--accent-rgb), 0.16);
+  }
+  .profile-role-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.8);
+  }
+  .profile-role-edit {
+    opacity: 0.6;
+    font-size: 11px;
+  }
+  .profile-since {
+    font: var(--font-caption);
+    color: var(--text-soft);
+  }
+
+  /* Stats grid */
+  .profile-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--space-3);
+    margin-top: var(--space-2);
+  }
+  .profile-stat {
+    padding: 18px 18px 16px;
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+  }
+  .profile-stat-label {
+    font: var(--font-micro);
+    letter-spacing: var(--tracking-micro);
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+  .profile-stat-value {
+    font: var(--font-display-l);
+    font-size: 28px;
+    line-height: 1;
+    color: var(--text);
+    letter-spacing: -0.025em;
+    font-variant-numeric: tabular-nums;
+  }
+  .profile-stat-sub {
+    font: var(--font-caption);
+    color: var(--text-soft);
+    margin-top: 6px;
+  }
+
+  /* Sections */
+  .profile-section {
+    margin-top: var(--space-10);
+  }
+  .profile-section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-4);
+    margin-bottom: var(--space-4);
+  }
+  .profile-section-head h2 {
+    font: var(--font-display-m);
+    letter-spacing: var(--tracking-display-m);
+    color: var(--text);
+    margin: 0;
+  }
+  .profile-section-meta {
+    font: var(--font-caption);
+    color: var(--text-dim);
+  }
+  .profile-fields {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-5);
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+  }
+  .profile-fields-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-4);
+  }
+  .profile-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .profile-field label {
+    font: var(--font-micro);
+    letter-spacing: var(--tracking-micro);
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .profile-field input,
+  .profile-field textarea,
+  .profile-field select {
+    background: rgba(0,0,0,0.18);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    padding: 10px 12px;
+    font: var(--font-body);
+    letter-spacing: var(--tracking-body);
+    resize: vertical;
+    transition: border-color var(--duration-fast) var(--ease-standard),
+                background var(--duration-fast) var(--ease-standard);
+  }
+  .profile-field input:focus,
+  .profile-field textarea:focus,
+  .profile-field select:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: rgba(0,0,0,0.28);
+  }
+  .profile-field input[readonly] {
+    color: var(--text-soft);
+    cursor: not-allowed;
+  }
+  .profile-field-hint {
+    font: var(--font-caption);
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  /* Activity */
+  .profile-activity {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .profile-activity-item {
+    display: grid;
+    grid-template-columns: 36px 1fr auto;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border-soft);
+    cursor: pointer;
+    transition: background var(--duration-fast) var(--ease-standard);
+  }
+  .profile-activity-item:last-child { border-bottom: none; }
+  .profile-activity-item:hover { background: rgba(255,255,255,0.02); }
+  .profile-activity-icon {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: rgba(var(--accent-rgb), 0.12);
+    border: 1px solid rgba(var(--accent-rgb), 0.28);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+    font-size: 14px;
+  }
+  .profile-activity-icon[data-kind="event"] {
+    background: rgba(var(--accent-rgb), 0.12);
+    border-color: rgba(var(--accent-rgb), 0.28);
+    color: var(--accent);
+  }
+  .profile-activity-icon[data-kind="done"] {
+    background: rgba(48,209,88,0.12);
+    border-color: rgba(48,209,88,0.32);
+    color: var(--success);
+  }
+  .profile-activity-body { min-width: 0; }
+  .profile-activity-title {
+    font: var(--font-body);
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .profile-activity-sub {
+    font: var(--font-caption);
+    color: var(--text-soft);
+    margin-top: 2px;
+  }
+  .profile-activity-when {
+    font: var(--font-caption);
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .profile-activity-empty {
+    padding: 28px 18px;
+    text-align: center;
+    color: var(--text-dim);
+    font: var(--font-body);
+  }
+
+  /* Mobile */
+  @media (max-width: 720px) {
+    .profile-hero {
+      grid-template-columns: 1fr;
+      gap: var(--space-4);
+      padding: var(--space-6) 0;
+      text-align: center;
+    }
+    .profile-avatar { margin: 0 auto; width: 100px; height: 100px; font-size: 38px; }
+    .profile-hero-meta { align-items: center; }
+    .profile-hero-name { font-size: 28px; }
+    .profile-hero-badges { justify-content: center; }
+    .profile-stats { grid-template-columns: repeat(2, 1fr); }
+    .profile-fields-row { grid-template-columns: 1fr; }
+  }
+
+  /* User chip avatar — small variant for sidebar/header */
+  .user-chip-avatar {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: var(--glass-bg-strong);
+    background-size: cover;
+    background-position: center;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font: 700 11px/1 "SF Pro Display", sans-serif;
+    color: var(--text);
+    margin-right: 6px;
+    border: 1px solid var(--border-soft);
+  }
+
   /* ROLE GRID — modal de sélection du rôle métier */
   .role-grid {
     display: grid;
@@ -4966,6 +5334,9 @@
     <div class="nav-item active" data-view="dashboard">
       <span class="nav-icon">◇</span> Dashboard
     </div>
+    <div class="nav-item" data-view="profile">
+      <span class="nav-icon">◉</span> Mon profil
+    </div>
     <div class="nav-item" data-view="todos">
       <span class="nav-icon">✓</span> À faire
     </div>
@@ -5061,6 +5432,102 @@
           </button>
         </header>
         <div class="dash-upcoming" id="dashboardUpcoming"></div>
+      </section>
+    </div>
+
+    <!-- ============================ PROFILE — "Mon espace" ============================
+         Personal hub for the current viewer. Reads from _currentProfile (Supabase)
+         + state.user + state.todos / state.events. Editable bio/phone/specialty
+         are persisted to the Supabase profiles row. Avatar uploads through
+         sbUploadFile to the existing covers bucket under the avatar_ prefix. -->
+    <div class="view" id="view-profile">
+      <section class="profile-hero">
+        <button type="button" class="profile-avatar" id="profileAvatar"
+                onclick="document.getElementById('profileAvatarInput').click()"
+                aria-label="Modifier la photo de profil">
+          <span class="profile-avatar-initial" id="profileAvatarInitial">—</span>
+          <span class="profile-avatar-edit" aria-hidden="true">Modifier</span>
+        </button>
+        <input type="file" id="profileAvatarInput" accept="image/*" hidden
+               onchange="handleAvatarUpload(event)" />
+        <div class="profile-hero-meta">
+          <div class="profile-hero-name" id="profileName">—</div>
+          <div class="profile-hero-alias-line" id="profileAliasLine">
+            <span class="profile-aka">aka </span>
+            <span class="profile-alias" id="profileAlias"
+                  contenteditable="true" spellcheck="false"
+                  data-placeholder="ajouter un alias"
+                  role="textbox" aria-label="Ton alias"></span>
+          </div>
+          <div class="profile-hero-badges">
+            <button type="button" class="profile-role-badge" id="profileRoleBadge"
+                    onclick="openRoleModal()" title="Changer mon rôle">
+              <span class="profile-role-dot" aria-hidden="true"></span>
+              <span id="profileRoleLabel">—</span>
+              <span class="profile-role-edit" aria-hidden="true">›</span>
+            </button>
+            <span class="profile-since" id="profileSince"></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="profile-stats" id="profileStats"></section>
+
+      <section class="profile-section">
+        <header class="profile-section-head">
+          <h2>À propos</h2>
+          <span class="profile-section-meta">Visible par l'équipe</span>
+        </header>
+        <div class="profile-fields">
+          <div class="profile-field">
+            <label>Bio</label>
+            <textarea id="profileBio" rows="2" placeholder="Quelques mots sur toi, ton style, tes spécialités…"
+                      onblur="updateProfileField('bio', this.value)"></textarea>
+          </div>
+          <div class="profile-fields-row">
+            <div class="profile-field">
+              <label>Email</label>
+              <input id="profileEmail" type="email" readonly />
+              <span class="profile-field-hint">Géré par ton compte Supabase</span>
+            </div>
+            <div class="profile-field">
+              <label>Téléphone</label>
+              <input id="profilePhone" type="tel" placeholder="+33 …"
+                     onblur="updateProfileField('phone', this.value)" />
+            </div>
+          </div>
+          <div class="profile-field">
+            <label>Spécialité</label>
+            <input id="profileSpecialty" placeholder="ex: mix électronique, montage vidéo TikTok…"
+                   onblur="updateProfileField('specialty', this.value)" />
+          </div>
+        </div>
+      </section>
+
+      <section class="profile-section">
+        <header class="profile-section-head">
+          <h2>Activité récente</h2>
+          <span class="profile-section-meta" id="profileActivityMeta">—</span>
+        </header>
+        <div class="profile-activity" id="profileActivity"></div>
+      </section>
+
+      <section class="profile-section">
+        <header class="profile-section-head">
+          <h2>Préférences</h2>
+          <span class="profile-section-meta">Personnalise ton expérience</span>
+        </header>
+        <div class="profile-fields">
+          <div class="profile-field">
+            <label>Visibilité de mon activité</label>
+            <select id="profileActivityVisibility"
+                    onchange="updateProfileField('activityVisibility', this.value)">
+              <option value="team">Équipe — visible par toute la team</option>
+              <option value="private">Privé — visible uniquement par moi</option>
+            </select>
+            <span class="profile-field-hint">Concerne ce qui apparaît dans cette section d'activité. Les events privés restent toujours privés.</span>
+          </div>
+        </div>
       </section>
     </div>
 
@@ -9648,6 +10115,323 @@ function handleImport(ev) {
 }
 
 /* ============================
+   PROFILE — "Mon espace"
+   Personal hub view. renderProfile() is idempotent; reads from
+   _currentProfile + state.user + state.todos + state.events. All edits
+   go through updateProfileField() which writes both locally and to the
+   Supabase profiles row.
+   ============================ */
+const PROFILE_AVATAR_BUCKET = SB_BUCKET_COVERS; // reuse covers bucket — same policy + image use case
+const PROFILE_AVATAR_PREFIX = 'avatar_';
+const _profileAvatarObjectUrls = new Map(); // userId → object URL, for revoke on update
+
+// Pull the canonical profile object. Always returns something — empty fields
+// are fine, missing user means we render placeholders.
+function _getProfileViewModel() {
+  const p = _currentProfile || {};
+  const u = state.user || {};
+  const userId = (_currentUser && _currentUser.id) || null;
+  const email = (_currentUser && _currentUser.email) || '';
+  const name = p.name || u.name || (email ? email.split('@')[0] : '—');
+  const alias = p.alias || '';
+  const since = u.since || p.created_at || null;
+  const roleKey = getCurrentRoleKey();
+  const role = ROLE_BY_KEY[roleKey] || ROLE_BY_KEY['autre'];
+  return {
+    userId, email, name, alias, since,
+    roleKey, roleLabel: role.label,
+    bio: p.bio || '',
+    phone: p.phone || '',
+    specialty: p.specialty || '',
+    avatarPath: p.avatar_path || '',
+    activityVisibility: p.activity_visibility || 'team',
+  };
+}
+
+// "il y a X jours/mois/ans" — short relative format, French locale.
+function _relativeSinceLong(iso) {
+  if (!iso) return '';
+  const t = Date.parse(iso);
+  if (isNaN(t)) return '';
+  const days = Math.floor((Date.now() - t) / 86400000);
+  if (days < 1) return 'Aujourd\'hui';
+  if (days === 1) return 'Membre depuis 1 jour';
+  if (days < 30) return 'Membre depuis ' + days + ' jours';
+  const months = Math.floor(days / 30);
+  if (months < 12) return 'Membre depuis ' + months + ' mois';
+  const years = Math.floor(months / 12);
+  if (years === 1) return 'Membre depuis 1 an';
+  return 'Membre depuis ' + years + ' ans';
+}
+
+function renderProfile() {
+  const vm = _getProfileViewModel();
+
+  // Header
+  const nameEl = document.getElementById('profileName');
+  if (nameEl) nameEl.textContent = vm.name;
+  const aliasEl = document.getElementById('profileAlias');
+  if (aliasEl) aliasEl.textContent = vm.alias;
+  const aliasLine = document.getElementById('profileAliasLine');
+  if (aliasLine) aliasLine.style.display = vm.alias ? '' : 'flex'; // always visible — placeholder shows up via :empty::before
+
+  const initialEl = document.getElementById('profileAvatarInitial');
+  if (initialEl) initialEl.textContent = (vm.name || '?').trim().charAt(0).toUpperCase() || '?';
+
+  const roleLabelEl = document.getElementById('profileRoleLabel');
+  if (roleLabelEl) roleLabelEl.textContent = vm.roleLabel;
+  const sinceEl = document.getElementById('profileSince');
+  if (sinceEl) sinceEl.textContent = _relativeSinceLong(vm.since);
+
+  // Editable fields
+  const bioEl = document.getElementById('profileBio');
+  if (bioEl) bioEl.value = vm.bio;
+  const emailEl = document.getElementById('profileEmail');
+  if (emailEl) emailEl.value = vm.email;
+  const phoneEl = document.getElementById('profilePhone');
+  if (phoneEl) phoneEl.value = vm.phone;
+  const specEl = document.getElementById('profileSpecialty');
+  if (specEl) specEl.value = vm.specialty;
+  const visEl = document.getElementById('profileActivityVisibility');
+  if (visEl) visEl.value = vm.activityVisibility;
+
+  // Stats — derived from local state (todos / events created by me)
+  renderProfileStats(vm);
+
+  // Activity — last 5 events created + todos completed by me
+  renderProfileActivity(vm);
+
+  // Avatar — load from IDB cache, fall back to Supabase Storage
+  refreshProfileAvatar(vm).catch(e => console.warn('avatar refresh failed:', e));
+}
+
+function renderProfileStats(vm) {
+  const todos = Array.isArray(state.todos) ? state.todos : [];
+  const events = Array.isArray(state.events) ? state.events : [];
+  const myEvents = events.filter(e => e && e.createdBy && e.createdBy.id && vm.userId && e.createdBy.id === vm.userId);
+  const todosDone = todos.filter(t => t && t.done).length;
+  const todosActive = todos.filter(t => t && !t.done).length;
+  const daysSince = (() => {
+    if (!vm.since) return 0;
+    const t = Date.parse(vm.since);
+    if (isNaN(t)) return 0;
+    return Math.max(0, Math.floor((Date.now() - t) / 86400000));
+  })();
+  const stats = [
+    { label: 'Tâches terminées', value: todosDone, sub: todosActive + ' actives' },
+    { label: 'Événements créés', value: myEvents.length, sub: 'depuis ton arrivée' },
+    { label: 'Streak', value: (state.streak && state.streak.days) || 0, sub: 'jours consécutifs' },
+    { label: 'Membre', value: daysSince, sub: daysSince === 1 ? 'jour' : 'jours' },
+  ];
+  const container = document.getElementById('profileStats');
+  if (!container) return;
+  container.innerHTML = stats.map(s => `
+    <div class="profile-stat">
+      <div class="profile-stat-label">${escapeHtml(s.label)}</div>
+      <div class="profile-stat-value">${escapeHtml(String(s.value))}</div>
+      <div class="profile-stat-sub">${escapeHtml(s.sub)}</div>
+    </div>
+  `).join('');
+}
+
+function renderProfileActivity(vm) {
+  const todos = Array.isArray(state.todos) ? state.todos : [];
+  const events = Array.isArray(state.events) ? state.events : [];
+  // Derive activity items: todos completed (by anyone — we don't track who closed
+  // each todo yet) + events created by me. Sorted desc by inferred timestamp.
+  const items = [];
+  // Recently completed todos — we use the id timestamp as a rough proxy when no
+  // closedAt is stored. Privacy-respect: if activityVisibility === 'private',
+  // we still show them since this is the user's own profile.
+  todos.filter(t => t.done).forEach(t => {
+    const id = t.id || '';
+    const tsMatch = id.match(/^td(\d+)/);
+    const ts = tsMatch ? parseInt(tsMatch[1], 10) : 0;
+    items.push({
+      kind: 'done',
+      title: t.text,
+      sub: t.cat || '',
+      ts,
+      onclick: "openDetail('todo','" + t.id + "')",
+    });
+  });
+  // Events created by me — use createdAt or fallback to id-derived ts
+  events.filter(e => e && e.createdBy && e.createdBy.id === vm.userId).forEach(e => {
+    const ts = e.createdAt ? Date.parse(e.createdAt) : 0;
+    items.push({
+      kind: 'event',
+      title: e.title,
+      sub: typeLabel(e.type) + (e.date ? ' · ' + formatDate(e.date) : ''),
+      ts: ts || 0,
+      onclick: "openDetail('event','" + e.id + "')",
+    });
+  });
+  items.sort((a, b) => b.ts - a.ts);
+  const top = items.slice(0, 5);
+  const meta = document.getElementById('profileActivityMeta');
+  if (meta) meta.textContent = items.length === 0 ? 'Rien encore' : (top.length + ' / ' + items.length + ' dernières');
+  const container = document.getElementById('profileActivity');
+  if (!container) return;
+  if (top.length === 0) {
+    container.innerHTML = '<div class="profile-activity-empty">Aucune activité récente. Tes prochaines actions apparaîtront ici.</div>';
+    return;
+  }
+  container.innerHTML = top.map(it => {
+    const icon = it.kind === 'done' ? '✓' : '📅';
+    const when = it.ts ? _formatRelativeShort(new Date(it.ts).toISOString()) : '';
+    return `
+      <div class="profile-activity-item" onclick="${it.onclick}">
+        <div class="profile-activity-icon" data-kind="${it.kind}">${icon}</div>
+        <div class="profile-activity-body">
+          <div class="profile-activity-title">${escapeHtml(it.title || '—')}</div>
+          ${it.sub ? `<div class="profile-activity-sub">${escapeHtml(it.sub)}</div>` : ''}
+        </div>
+        <div class="profile-activity-when">${escapeHtml(when)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+/* AVATAR — stored in the existing covers bucket under "avatar_{userId}.{ext}".
+   IDB cache lives in the existing idbSaveCover/idbGetCover helpers under the
+   key "user_{userId}". Object URLs are tracked + revoked on replacement to
+   avoid leaks. */
+async function refreshProfileAvatar(vm) {
+  if (!vm || !vm.userId) return;
+  const avatarEl = document.getElementById('profileAvatar');
+  if (!avatarEl) return;
+
+  // 1. Try IDB cache first
+  let blob = null;
+  try {
+    const cached = await idbGetCover('user_' + vm.userId);
+    if (cached && cached.blob) blob = cached.blob;
+  } catch (e) { /* ignore */ }
+
+  // 2. Fall back to Supabase Storage
+  if (!blob && vm.avatarPath) {
+    try {
+      const dl = await sbDownloadBlob(PROFILE_AVATAR_BUCKET, vm.avatarPath);
+      if (dl) {
+        blob = dl;
+        // Cache locally so next render is instant
+        try { await idbSaveCover('user_' + vm.userId, blob); } catch (e) {}
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  // Revoke previous URL, apply new
+  const previous = _profileAvatarObjectUrls.get(vm.userId);
+  if (previous) URL.revokeObjectURL(previous);
+  if (blob) {
+    const url = URL.createObjectURL(blob);
+    _profileAvatarObjectUrls.set(vm.userId, url);
+    avatarEl.style.backgroundImage = 'url(' + url + ')';
+    avatarEl.style.backgroundSize = 'cover';
+    avatarEl.style.backgroundPosition = 'center';
+    avatarEl.classList.add('has-image');
+  } else {
+    avatarEl.style.backgroundImage = '';
+    avatarEl.classList.remove('has-image');
+  }
+}
+
+async function handleAvatarUpload(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  ev.target.value = ''; // allow re-uploading the same file later
+  if (!file) return;
+  if (!file.type || !file.type.startsWith('image/')) {
+    toast('Format non supporté. Choisis une image.');
+    return;
+  }
+  if (typeof MAX_FILE_SIZE === 'number' && file.size > MAX_FILE_SIZE) {
+    toast('Image trop lourde.');
+    return;
+  }
+  const vm = _getProfileViewModel();
+  if (!vm.userId) { toast('Connecte-toi pour changer ton avatar.'); return; }
+  // Save locally first — immediate UX
+  try { await idbSaveCover('user_' + vm.userId, file); } catch (e) {}
+  // Upload to cloud — best effort. Path is stable per user so re-uploads
+  // overwrite. extension preserved when possible.
+  const ext = ((file.type || '').split('/')[1] || 'jpg').replace(/[^a-z0-9]/gi, '');
+  const path = PROFILE_AVATAR_PREFIX + vm.userId + '.' + ext;
+  const res = await sbUploadFile(PROFILE_AVATAR_BUCKET, path, file);
+  if (res && res.ok) {
+    // Persist path on the profile row so other devices know where to fetch.
+    if (_currentProfile) _currentProfile.avatar_path = path;
+    try {
+      if (sb && vm.userId) {
+        await sb.from('profiles').update({ avatar_path: path }).eq('id', vm.userId);
+      }
+    } catch (e) { console.warn('avatar path persist failed:', e); }
+  } else {
+    console.warn('avatar upload failed:', res && res.error);
+    toast('Avatar enregistré localement (cloud indisponible).');
+  }
+  await refreshProfileAvatar({ ..._getProfileViewModel(), avatarPath: path });
+  // Sidebar / dashboard / event-credit displays — re-render once.
+  if (typeof renderDashboard === 'function') renderDashboard();
+}
+
+/* Field updater — persists to Supabase profile, mirrors locally.
+   Kept generic so adding "specialty", "phone", "bio", "activityVisibility"
+   doesn't need new handlers. Maps camelCase JS keys to snake_case columns. */
+async function updateProfileField(jsKey, value) {
+  const v = (value == null) ? '' : String(value);
+  if (!_currentProfile) return;
+  // Local mirror
+  _currentProfile[jsKey] = v;
+  // alias has its own special handling elsewhere; bio/phone/specialty straightforward
+  const colMap = {
+    bio: 'bio',
+    phone: 'phone',
+    specialty: 'specialty',
+    activityVisibility: 'activity_visibility',
+  };
+  const col = colMap[jsKey];
+  if (!col) return;
+  try {
+    if (sb && _currentUser && _currentUser.id) {
+      await sb.from('profiles').update({ [col]: v }).eq('id', _currentUser.id);
+    }
+  } catch (e) { console.warn('updateProfileField ' + jsKey + ':', e); }
+}
+
+// Inline alias edit on the profile page — wired in setupProfileAliasEdit().
+function setupProfileAliasEdit() {
+  const el = document.getElementById('profileAlias');
+  if (!el || el.dataset.aliasBound === '1') return;
+  el.dataset.aliasBound = '1';
+  el.addEventListener('blur', async () => {
+    const value = el.textContent.trim().slice(0, 32);
+    el.textContent = value;
+    if (_currentProfile) _currentProfile.alias = value || null;
+    try {
+      if (sb && _currentUser && _currentUser.id) {
+        await sb.from('profiles').update({ alias: value || null }).eq('id', _currentUser.id);
+      }
+    } catch (e) { console.warn('alias update:', e); }
+    // Also sync the dashboard greeting alias element
+    const dashAlias = document.getElementById('dashGreetingAlias');
+    if (dashAlias) dashAlias.textContent = value;
+  });
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      el.textContent = (_currentProfile && _currentProfile.alias) || '';
+      el.blur();
+    }
+  });
+  el.addEventListener('paste', (e) => {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData('text').slice(0, 32);
+    document.execCommand('insertText', false, text);
+  });
+}
+
+/* ============================
    TODOS
    ============================ */
 const TODO_CATEGORIES = ['Pre-Launch', 'Rollout', 'Pivot', 'Élévation', 'Événement', 'Autre'];
@@ -11607,6 +12391,7 @@ function detailPhaseHTML(p, idx) {
    ============================ */
 function renderView(view) {
   if (view === 'dashboard') renderDashboard();
+  if (view === 'profile') { renderProfile(); setupProfileAliasEdit(); }
   if (view === 'todos') renderTodos();
   if (view === 'catalogue') renderCatalogue();
   if (view === 'calendrier') renderCalendar();
@@ -11625,6 +12410,7 @@ function renderAll() {
   // (which would leave the auth screen stuck with no visible form).
   const sections = [
     ['Dashboard', renderDashboard],
+    ['Profile', renderProfile],
     ['Todos', renderTodos],
     ['Catalogue', renderCatalogue],
     ['Calendar', renderCalendar],
