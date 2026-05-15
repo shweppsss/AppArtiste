@@ -3069,11 +3069,15 @@
   }
   .detail-overlay.open {
     display: flex;
-    animation: detailIn var(--duration-slow) var(--ease-emphasized);
+    animation: detailIn 380ms var(--ease-emphasized);
   }
+  /* Sheet-style slide-up — mirrors the way Apple Music expands its mini-player
+     into the Now Playing screen. Starts 32px below + slightly scaled-down +
+     transparent, settles into place. Reduced-motion users get an instant fade
+     via the global @media block. */
   @keyframes detailIn {
-    from { opacity: 0; transform: translateX(20px); }
-    to { opacity: 1; transform: translateX(0); }
+    from { opacity: 0; transform: translateY(32px) scale(0.985); }
+    to   { opacity: 1; transform: translateY(0)    scale(1);     }
   }
   .detail-header {
     position: sticky;
@@ -5887,6 +5891,12 @@
       0 8px 24px rgba(0,0,0,0.35),
       inset 0 1px 0 rgba(255,255,255,0.05);
     animation: miniIn var(--duration-slow) var(--ease-emphasized);
+    cursor: pointer;
+    transition: transform var(--duration-fast) var(--ease-standard),
+                box-shadow var(--duration-fast) var(--ease-standard);
+  }
+  .mini-player:active {
+    transform: translateX(-50%) scale(0.97);
   }
   @keyframes miniIn {
     from { opacity: 0; transform: translateX(-50%) translateY(20px); }
@@ -7600,9 +7610,17 @@ const MiniPlayer = (() => {
     if (!audio || !playBtn) return;
     playBtn.innerHTML = icon('play', 18);
     closeBtn.innerHTML = icon('close', 14);
-    playBtn.addEventListener('click', () => audio.paused ? audio.play() : audio.pause());
-    closeBtn.addEventListener('click', hide);
-    coverBtn.addEventListener('click', () => {
+    // Buttons inside the pill stop propagation so the surrounding "open detail"
+    // tap area doesn't fire on a play/pause/close press.
+    playBtn.addEventListener('click', (e) => { e.stopPropagation(); audio.paused ? audio.play() : audio.pause(); });
+    closeBtn.addEventListener('click', (e) => { e.stopPropagation(); hide(); });
+    coverBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (currentTrackId && typeof openDetail === 'function') openDetail('track', currentTrackId);
+    });
+    // Tapping anywhere else on the pill (the title/sub area especially) opens
+    // the detail. Same intent as Apple Music's "tap pill to expand to Now Playing".
+    el.addEventListener('click', () => {
       if (currentTrackId && typeof openDetail === 'function') openDetail('track', currentTrackId);
     });
     audio.addEventListener('play', () => { playBtn.innerHTML = icon('pause', 18); });
@@ -10442,6 +10460,7 @@ function toast(msg) {
    ============================ */
 const NAV_TABS = [
   { view: 'dashboard', icon: '◇', label: 'Home' },
+  { view: 'profile', icon: '◉', label: 'Profil' },
   { view: 'todos', icon: '✓', label: 'À faire' },
   { view: 'catalogue', icon: '♪', label: 'Sons' },
   { view: 'calendrier', icon: '▤', label: 'Agenda' },
