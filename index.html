@@ -7755,6 +7755,14 @@ function swipeDeleteMember(id) {
    • month: classic month grid (the original implementation below)
    • week: Apple-style hourly timeline 7h-23h × 7 days, drag events anywhere */
 function renderCalendar() {
+  // Orphan sweep — if a drag was interrupted by a mid-drag re-render (e.g. a
+  // realtime sync arrived while the user was dragging), the floating ghost
+  // (parented to document.body, not the grid) survives the innerHTML replace
+  // and stays stuck on screen. Wipe any leftover here before drawing.
+  document.querySelectorAll('.cal-event-ghost').forEach(g => g.remove());
+  document.querySelectorAll('.cal-event-dragging').forEach(p => p.classList.remove('cal-event-dragging'));
+  document.querySelectorAll('.cal-cell-droptarget').forEach(c => c.classList.remove('cal-cell-droptarget'));
+
   // Make sure the toggle reflects current state
   const monthTab = document.getElementById('calViewMonth');
   const weekTab = document.getElementById('calViewWeek');
@@ -7932,6 +7940,7 @@ function attachWeekInteractions() {
 let _weekDrag = null;
 function _onWeekEventPointerDown(e) {
   if (e.pointerType === 'mouse' && e.button !== 0) return;
+  if (_weekDrag) _cleanupWeekDrag(null);
   const pill = e.currentTarget;
   const id = pill.dataset.eventId;
   if (!id) return;
@@ -7952,9 +7961,11 @@ function _onWeekEventPointerDown(e) {
     targetDate: null,
     targetMins: null,
   };
-  pill.addEventListener('pointermove', _onWeekEventPointerMove);
-  pill.addEventListener('pointerup', _onWeekEventPointerUp);
-  pill.addEventListener('pointercancel', _onWeekEventPointerUp);
+  // Document-level listeners so a mid-drag re-render (realtime sync) doesn't
+  // kill them when the source pill is destroyed and recreated.
+  document.addEventListener('pointermove', _onWeekEventPointerMove);
+  document.addEventListener('pointerup', _onWeekEventPointerUp);
+  document.addEventListener('pointercancel', _onWeekEventPointerUp);
   document.addEventListener('keydown', _onWeekDragKeydown);
 }
 
@@ -8040,17 +8051,19 @@ function _onWeekDragKeydown(e) {
 }
 
 function _cleanupWeekDrag(e) {
-  if (!_weekDrag) return;
-  if (_weekDrag.ghost) { _weekDrag.ghost.remove(); _weekDrag.ghost = null; }
-  if (_weekDrag.pill) {
-    _weekDrag.pill.classList.remove('cal-event-dragging');
-    _weekDrag.pill.removeEventListener('pointermove', _onWeekEventPointerMove);
-    _weekDrag.pill.removeEventListener('pointerup', _onWeekEventPointerUp);
-    _weekDrag.pill.removeEventListener('pointercancel', _onWeekEventPointerUp);
-    if (e) { try { _weekDrag.pill.releasePointerCapture(e.pointerId); } catch (err) {} }
-  }
+  // Same defensive sweep as the month-view cleanup — see _cleanupCalDrag.
+  document.querySelectorAll('.cal-event-ghost').forEach(g => g.remove());
+  document.querySelectorAll('.cal-event-dragging').forEach(p => p.classList.remove('cal-event-dragging'));
+  document.removeEventListener('pointermove', _onWeekEventPointerMove);
+  document.removeEventListener('pointerup', _onWeekEventPointerUp);
+  document.removeEventListener('pointercancel', _onWeekEventPointerUp);
   document.removeEventListener('keydown', _onWeekDragKeydown);
-  _weekDrag = null;
+  if (_weekDrag) {
+    if (_weekDrag.pill && e) {
+      try { _weekDrag.pill.releasePointerCapture(e.pointerId); } catch (err) {}
+    }
+    _weekDrag = null;
+  }
 }
 
 function renderMonthView() {
@@ -8129,12 +8142,16 @@ function attachCalendarInteractions() {
 function _onCalEventPointerDown(e) {
   // Only primary button on mouse; allow all touch/pen pointers
   if (e.pointerType === 'mouse' && e.button !== 0) return;
+  // Belt-and-suspenders: if any previous drag is still flagged, sweep it before starting fresh.
+  if (_calDrag) _cleanupCalDrag(null);
   const pill = e.currentTarget;
   const id = pill.dataset.eventId;
   if (!id) return;
   e.preventDefault();
   e.stopPropagation();
   const rect = pill.getBoundingClientRect();
+  // Capture on the pill is fine; the move/up listeners live on the document
+  // so a renderCalendar() mid-drag (e.g. realtime sync) doesn't kill them.
   try { pill.setPointerCapture(e.pointerId); } catch (err) {}
   _calDrag = {
     id, pill,
@@ -8147,10 +8164,9 @@ function _onCalEventPointerDown(e) {
     started: false,
     lastCell: null,
   };
-  pill.addEventListener('pointermove', _onCalEventPointerMove);
-  pill.addEventListener('pointerup', _onCalEventPointerUp);
-  pill.addEventListener('pointercancel', _onCalEventPointerUp);
-  // Escape cancels the drag — restores the original position
+  document.addEventListener('pointermove', _onCalEventPointerMove);
+  document.addEventListener('pointerup', _onCalEventPointerUp);
+  document.addEventListener('pointercancel', _onCalEventPointerUp);
   document.addEventListener('keydown', _onCalDragKeydown);
 }
 
@@ -8227,18 +8243,25 @@ function _onCalDragKeydown(e) {
 }
 
 function _cleanupCalDrag(e) {
-  if (!_calDrag) return;
-  if (_calDrag.ghost) { _calDrag.ghost.remove(); _calDrag.ghost = null; }
-  if (_calDrag.pill) {
-    _calDrag.pill.classList.remove('cal-event-dragging');
-    _calDrag.pill.removeEventListener('pointermove', _onCalEventPointerMove);
-    _calDrag.pill.removeEventListener('pointerup', _onCalEventPointerUp);
-    _calDrag.pill.removeEventListener('pointercancel', _onCalEventPointerUp);
-    if (e) { try { _calDrag.pill.releasePointerCapture(e.pointerId); } catch (err) {} }
-  }
-  if (_calDrag.lastCell) _calDrag.lastCell.classList.remove('cal-cell-droptarget');
+  // Always sweep orphans: a previous drag may have been interrupted by a
+  // mid-drag re-render that destroyed the source pill, leaving a ghost in
+  // document.body and a stuck cal-event-dragging class on... wait, the pill
+  // was destroyed, so the class went with it. But the GHOST survives since
+  // it's appended to document.body. Sweep here defensively.
+  document.querySelectorAll('.cal-event-ghost').forEach(g => g.remove());
+  document.querySelectorAll('.cal-event-dragging').forEach(p => p.classList.remove('cal-event-dragging'));
+  document.querySelectorAll('.cal-cell-droptarget').forEach(c => c.classList.remove('cal-cell-droptarget'));
+  // Detach the document-level listeners (they're re-attached on next pointerdown)
+  document.removeEventListener('pointermove', _onCalEventPointerMove);
+  document.removeEventListener('pointerup', _onCalEventPointerUp);
+  document.removeEventListener('pointercancel', _onCalEventPointerUp);
   document.removeEventListener('keydown', _onCalDragKeydown);
-  _calDrag = null;
+  if (_calDrag) {
+    if (_calDrag.pill && e) {
+      try { _calDrag.pill.releasePointerCapture(e.pointerId); } catch (err) {}
+    }
+    _calDrag = null;
+  }
 }
 
 function changeMonth(delta) {
