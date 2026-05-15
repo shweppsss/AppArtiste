@@ -6406,8 +6406,12 @@ async function sendResetEmail(ev) {
   btn.classList.add('auth-loading');
   btn.disabled = true;
   try {
+    // IMPORTANT: include the pathname. GitHub Pages serves the app at
+    //   https://shweppsss.github.io/Deggzy-Team/
+    // so origin-only ('https://shweppsss.github.io') 404s and the
+    // #access_token in the reset link never reaches the app.
     const { error } = await sb.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin,
+      redirectTo: window.location.origin + window.location.pathname,
     });
     if (error) throw error;
     toast('Email envoyé à ' + email + '. Vérifie ta boîte (et les spams).');
