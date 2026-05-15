@@ -3468,6 +3468,85 @@
   }
 
   /* ============================
+     AUTH — invitation-only banner + password reveal toggle
+     ============================ */
+  .auth-invitation-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 16px 18px;
+    background: linear-gradient(135deg, rgba(255,184,77,0.10), rgba(10,132,255,0.04));
+    border: 1px solid rgba(255,184,77,0.32);
+    border-radius: var(--radius);
+    margin-bottom: 18px;
+  }
+  .auth-invitation-banner[hidden] { display: none; }
+  .auth-invitation-icon {
+    font-size: 22px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .auth-invitation-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+  }
+  .auth-invitation-body strong {
+    font: var(--font-body-l);
+    font-weight: 600;
+    color: var(--text);
+  }
+  .auth-invitation-body span {
+    font: var(--font-caption);
+    color: var(--text-soft);
+    line-height: 1.45;
+  }
+  .auth-invitation-banner .auth-link {
+    align-self: flex-start;
+    white-space: nowrap;
+  }
+  /* When the banner is visible (invitation-only), dim the multi-step form
+     behind it — visually communicates "you can't submit this right now". */
+  .auth-onboarding.is-invitation-only .onboarding-progress,
+  .auth-onboarding.is-invitation-only .onboarding-step,
+  .auth-onboarding.is-invitation-only .auth-toggle-row {
+    opacity: 0.45;
+    pointer-events: none;
+    filter: blur(0.3px) saturate(0.7);
+  }
+
+  .auth-password-wrap {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+  }
+  .auth-password-wrap input {
+    flex: 1;
+    padding-right: 72px; /* room for the toggle */
+  }
+  .auth-password-toggle {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 4px 10px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border-soft);
+    border-radius: 100px;
+    color: var(--text-soft);
+    font: 500 11px/1 "SF Pro Text", sans-serif;
+    cursor: pointer;
+    transition: background var(--duration-fast) var(--ease-standard),
+                color var(--duration-fast) var(--ease-standard);
+  }
+  .auth-password-toggle:hover {
+    background: rgba(255,255,255,0.08);
+    color: var(--text);
+  }
+
+  /* ============================
      ONBOARDING — multi-step signup form
      Lives inside #authSignUpView.auth-onboarding. One .onboarding-step is
      visible at a time; transitions handled by adding/removing .active.
@@ -6174,7 +6253,10 @@
       </div>
       <div class="auth-field">
         <label>Mot de passe</label>
-        <input id="signInPassword" type="password" required autocomplete="current-password" minlength="6" placeholder="••••••••" />
+        <div class="auth-password-wrap">
+          <input id="signInPassword" type="password" required autocomplete="current-password" minlength="6" placeholder="••••••••" />
+          <button type="button" class="auth-password-toggle" aria-label="Afficher / masquer le mot de passe" onclick="toggleAuthPassword('signInPassword', this)">Afficher</button>
+        </div>
       </div>
       <button type="submit" class="auth-submit" id="signInButton">Se connecter</button>
       <div class="auth-toggle-row">
@@ -6192,6 +6274,17 @@
          Supabase needs). Onboarding state lives in window._onboardingState
          which is rebuilt each time the user opens the signup form. -->
     <form id="authSignUpView" class="auth-form auth-onboarding" onsubmit="signUpUser(event)" style="display:none;">
+      <!-- Invitation-only banner — populated by _renderSignupInvitationState()
+           when auth/v1/settings.disable_signup = true. Hidden by default. -->
+      <div class="auth-invitation-banner" id="signupInvitationBanner" hidden>
+        <div class="auth-invitation-icon" aria-hidden="true">🔒</div>
+        <div class="auth-invitation-body">
+          <strong>Workspace sur invitation</strong>
+          <span>Pour rejoindre Noname × Degzzy, demande un accès à l'admin. Tu pourras ensuite te connecter avec les identifiants reçus.</span>
+        </div>
+        <button type="button" class="auth-link" onclick="showSignIn()">J'ai déjà un compte →</button>
+      </div>
+
       <div class="onboarding-progress" role="progressbar" aria-label="Étape de l'inscription">
         <button type="button" class="onboarding-progress-dot active" data-step="1" aria-label="Étape 1 sur 4"><span>1</span></button>
         <span class="onboarding-progress-line"></span>
@@ -6230,7 +6323,17 @@
           </div>
           <div class="auth-field">
             <label>Mot de passe <span class="auth-field-optional">6 caractères min.</span></label>
-            <input id="signUpPassword" type="password" required autocomplete="new-password" minlength="6" />
+            <div class="auth-password-wrap">
+              <input id="signUpPassword" type="password" required autocomplete="new-password" minlength="6" />
+              <button type="button" class="auth-password-toggle" aria-label="Afficher / masquer le mot de passe" onclick="toggleAuthPassword('signUpPassword', this)">Afficher</button>
+            </div>
+          </div>
+          <div class="auth-field">
+            <label>Confirmation</label>
+            <div class="auth-password-wrap">
+              <input id="signUpPasswordConfirm" type="password" required autocomplete="new-password" minlength="6" />
+              <button type="button" class="auth-password-toggle" aria-label="Afficher / masquer la confirmation" onclick="toggleAuthPassword('signUpPasswordConfirm', this)">Afficher</button>
+            </div>
           </div>
         </div>
         <div class="onboarding-nav">
@@ -8771,6 +8874,8 @@ function mapAuthError(e) {
     ['too many requests',             'Trop de tentatives. Réessaie dans quelques minutes.'],
     ['user not found',                'Aucun compte avec cet email.'],
     ['signup is disabled',            'Les inscriptions sont fermées. Contacte l\'admin.'],
+    ['signups not allowed',           'Les inscriptions sont fermées. Contacte l\'admin.'],
+    ['signup_disabled',               'Les inscriptions sont fermées. Contacte l\'admin.'],
     ['email rate limit exceeded',     'Trop d\'emails envoyés. Réessaie dans 1h.'],
     ['session not found',             'Session expirée. Reconnecte-toi.'],
     ['session expired',               'Session expirée. Reconnecte-toi.'],
@@ -8837,7 +8942,7 @@ function resetOnboardingState() {
   _showOnboardingStep(1);
   // Clear field values too, but only if the form exists in the DOM.
   const ids = ['signUpFirstName','signUpLastName','signUpAlias','signUpEmail',
-               'signUpPassword','signUpBio','signUpSpecialty','signUpPhone','signUpSkillInput'];
+               'signUpPassword','signUpPasswordConfirm','signUpBio','signUpSpecialty','signUpPhone','signUpSkillInput'];
   ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
 }
 
@@ -9011,13 +9116,21 @@ function _renderOnboardingRecap() {
    then moves on. Validation errors surface via toast (consistent with the
    rest of the app) — no native alert(). */
 function onboardingNext() {
+  // Gate: if signup is disabled at the server, don't let the user move
+  // through the form at all. The banner already explains why.
+  if (_authSettings !== null && !isSignupEnabled()) {
+    toast('Inscription désactivée pour ce workspace. Demande un accès à l\'admin.');
+    return;
+  }
   if (_onboardingStep === 1) {
     const first = (document.getElementById('signUpFirstName') || {}).value.trim();
     const email = (document.getElementById('signUpEmail') || {}).value.trim();
     const pwd   = (document.getElementById('signUpPassword') || {}).value || '';
+    const pwd2  = (document.getElementById('signUpPasswordConfirm') || {}).value || '';
     if (!first)           { toast('Ton prénom est requis.'); return; }
     if (!email || !/^.+@.+\..+$/.test(email)) { toast('Adresse email invalide.'); return; }
     if (pwd.length < 6)   { toast('Le mot de passe doit faire au moins 6 caractères.'); return; }
+    if (pwd !== pwd2)     { toast('Les deux mots de passe ne correspondent pas.'); return; }
   }
   if (_onboardingStep === 2) {
     if (!_onboardingState.roleKey) {
@@ -9061,6 +9174,19 @@ async function signUpUser(ev) {
   if (!email)        { toast('Email requis.'); _showOnboardingStep(1); return; }
   if (!password || password.length < 6) {
     toast('Mot de passe trop court.'); _showOnboardingStep(1); return;
+  }
+  const passwordConfirm = (document.getElementById('signUpPasswordConfirm') || {}).value || '';
+  if (passwordConfirm !== password) {
+    toast('Les deux mots de passe ne correspondent pas.');
+    _showOnboardingStep(1);
+    return;
+  }
+  // Final server-state guard: if signups were turned off between page load
+  // and submit, fail fast with a clear message instead of letting Supabase
+  // return a generic 422.
+  if (_authSettings !== null && !isSignupEnabled()) {
+    toast('Inscription désactivée pour ce workspace. Contacte l\'admin.');
+    return;
   }
   const btn = document.getElementById('signUpButton');
   btn.classList.add('auth-loading');
@@ -9489,10 +9615,46 @@ function showAuthView(viewId) {
 }
 
 function showSetup() { showAuthView('authSetupView'); }
+
+/* Renders the invitation-only state on the signup form based on the cached
+   auth/v1/settings response. When signup is disabled, the banner is shown
+   and the multi-step form is visually de-emphasized + non-interactive. */
+function _renderSignupInvitationState() {
+  const banner = document.getElementById('signupInvitationBanner');
+  const form = document.getElementById('authSignUpView');
+  if (!banner || !form) return;
+  if (_authSettings === null) {
+    // Settings haven't loaded yet — assume open until we know better.
+    banner.hidden = true;
+    form.classList.remove('is-invitation-only');
+    return;
+  }
+  if (!isSignupEnabled()) {
+    banner.hidden = false;
+    form.classList.add('is-invitation-only');
+  } else {
+    banner.hidden = true;
+    form.classList.remove('is-invitation-only');
+  }
+}
+
+/* Toggle a password input's visibility. Pure DOM, no state — the button text
+   itself doubles as the indicator. Works on any input id passed in. */
+function toggleAuthPassword(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (!input || !btn) return;
+  const showing = input.type === 'text';
+  input.type = showing ? 'password' : 'text';
+  btn.textContent = showing ? 'Afficher' : 'Masquer';
+}
 function showSignIn() { showAuthView('authSignInView'); document.getElementById('authTag').textContent = 'Connecte-toi pour accéder au workspace.'; }
 function showSignUp() {
   showAuthView('authSignUpView');
   document.getElementById('authTag').textContent = 'Rejoins l\'équipe Noname × Degzzy.';
+  // Invitation-only state: if signup is disabled at the Supabase auth layer,
+  // we surface a clear "Sur invitation" banner and route the primary CTA to
+  // signin instead of letting the user fill 4 steps then fail.
+  _renderSignupInvitationState();
   // 4-step onboarding state lives in _onboardingState; reset it each time the
   // user lands on the signup view so an aborted flow doesn't bleed into a
   // fresh attempt. Renders the role grid + progress bar + step 1.
@@ -14097,6 +14259,39 @@ function generateTasksForRole(role) {
    AUTH / SESSION
    ============================ */
 
+/* AUTH SETTINGS — server state cache.
+   Single source of truth for "is signup currently allowed?" + which auth
+   providers are enabled. Fetched once per page load from auth/v1/settings
+   (a public endpoint, requires only the anon key) and read everywhere the
+   signup view needs to react.
+
+   Why: previously the app showed a full 4-step onboarding form that
+   silently failed at submit when disable_signup=true. That's exactly the
+   "erreur technique visible" the product brief wants to eliminate.
+   The new flow degrades gracefully: invitation-only banner, disabled
+   submit, no wasted user effort.
+*/
+let _authSettings = null;
+async function loadAuthSettings() {
+  if (!sb || _authSettings !== null) return _authSettings;
+  try {
+    // Re-use the configured supabase URL + anon key — no hardcode.
+    const url = sb.supabaseUrl || (sb.rest && sb.rest.url) || '';
+    const key = sb.supabaseKey || '';
+    if (!url) return null;
+    const res = await fetch(url + '/auth/v1/settings', { headers: { apikey: key } });
+    if (!res.ok) throw new Error('settings http ' + res.status);
+    _authSettings = await res.json();
+  } catch (e) {
+    console.warn('[Auth] loadAuthSettings failed:', e);
+    _authSettings = { disable_signup: false }; // fail-open — assume signup OK
+  }
+  return _authSettings;
+}
+function isSignupEnabled() {
+  return !!_authSettings && _authSettings.disable_signup !== true;
+}
+
 async function checkAuth() {
   const auth = document.getElementById('authScreen');
   auth.style.display = 'flex';
@@ -14114,6 +14309,11 @@ async function checkAuth() {
     showSetup();
     return;
   }
+
+  // 2.1 Load auth settings (signup enabled? providers?) in parallel —
+  //     don't block the recovery / session check below, but kick it off
+  //     so showSignUp/showSignIn can read it synchronously when called.
+  loadAuthSettings().catch(() => {});
 
   // 2.5 Detect password recovery flow (hash like #type=recovery&access_token=...)
   const hash = window.location.hash || '';
@@ -14157,8 +14357,15 @@ async function checkAuth() {
     console.error('[Auth] Session check failed:', e);
   }
 
-  // 4. No session → show sign-in
-  showSignIn();
+  // 4. No session → onboarding-first product flow:
+  //    - When signup is enabled, default to the signup view (create-account-first
+  //      UX per the product brief).
+  //    - When signup is disabled (invitation-only workspace), default to signin —
+  //      no point landing on a form the user can't submit.
+  //    Either way, both views link to each other.
+  await loadAuthSettings();
+  if (isSignupEnabled()) showSignUp();
+  else showSignIn();
 }
 
 function logoutStudio() {
