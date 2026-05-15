@@ -2019,6 +2019,36 @@
   .cal-cell:hover { background: var(--surface); }
   .cal-cell.muted { opacity: 0.35; }
   .cal-cell.today { background: var(--surface); border: 1px solid var(--accent); }
+  .cal-cell.overload { box-shadow: inset 0 0 0 1px rgba(255, 152, 0, 0.45); }
+  .cal-cell-overload-flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    align-self: flex-start;
+    margin-top: 1px;
+    padding: 1px 5px;
+    background: rgba(255, 152, 0, 0.18);
+    color: #FFB347;
+    font-size: 9.5px;
+    font-weight: 600;
+    border-radius: 999px;
+    letter-spacing: 0.2px;
+  }
+  .cal-event.conflict,
+  .cal-week-event.conflict {
+    box-shadow: 0 0 0 1px rgba(229, 90, 90, 0.7), 0 0 8px -2px rgba(229, 90, 90, 0.4);
+  }
+  .cal-event.conflict::after,
+  .cal-week-event.conflict::after {
+    content: '⚠';
+    position: absolute;
+    top: 1px;
+    right: 3px;
+    font-size: 9px;
+    color: #E55A5A;
+    pointer-events: none;
+  }
+  .cal-event.conflict { position: relative; padding-right: 14px; }
   .cal-day {
     font-size: 12px;
     color: var(--text-soft);
@@ -11448,6 +11478,55 @@ function _formatEventRange(time, durationMins) {
   return formatEventTime(time) + ' – ' + formatEventTime(_minsToTime(end));
 }
 
+// Day is considered overloaded above this count. Tuned so the typical 1–3
+// events/day stay calm and only genuinely packed days flag.
+const OVERLOAD_THRESHOLD = 5;
+
+// Two timed events on the same day overlap when their [start, end) intervals
+// intersect. All-day (no time) entries never count as a conflict — they share
+// the day with everything else by design.
+function _eventsOverlap(a, b) {
+  if (!a || !b || a.date !== b.date) return false;
+  if (!a.time || !b.time) return false;
+  const aStart = _timeToMins(a.time);
+  const bStart = _timeToMins(b.time);
+  if (aStart == null || bStart == null) return false;
+  const aEnd = aStart + (parseInt(a.duration, 10) || 60);
+  const bEnd = bStart + (parseInt(b.duration, 10) || 60);
+  return aStart < bEnd && bStart < aEnd;
+}
+
+// Returns a Map<eventId, Array<conflictingEvent>> for events that overlap with
+// at least one other event on the same day. O(n²) per-day — fine at our scale.
+function detectEventConflicts(events) {
+  const conflicts = new Map();
+  const byDate = {};
+  for (const e of events) {
+    if (!e || !e.date) continue;
+    (byDate[e.date] = byDate[e.date] || []).push(e);
+  }
+  for (const date in byDate) {
+    const day = byDate[date];
+    for (let i = 0; i < day.length; i++) {
+      for (let j = i + 1; j < day.length; j++) {
+        if (_eventsOverlap(day[i], day[j])) {
+          if (!conflicts.has(day[i].id)) conflicts.set(day[i].id, []);
+          if (!conflicts.has(day[j].id)) conflicts.set(day[j].id, []);
+          conflicts.get(day[i].id).push(day[j]);
+          conflicts.get(day[j].id).push(day[i]);
+        }
+      }
+    }
+  }
+  return conflicts;
+}
+
+function _conflictTooltip(others) {
+  if (!others || !others.length) return '';
+  const names = others.map(o => o.title || 'Sans titre').join(', ');
+  return 'Conflit avec : ' + names;
+}
+
 function renderWeekView() {
   const grid = document.getElementById('calendarGrid');
   if (!grid) return;
@@ -11508,6 +11587,7 @@ function renderWeekView() {
     // Events whose date matches this day, filtered by visibility (private events
     // owned by other users are hidden).
     const evs = filterVisibleEvents(state.events).filter(e => e.date === iso);
+    const conflicts = detectEventConflicts(evs);
     for (const e of evs) {
       let mins = _timeToMins(e.time);
       let allDay = false;
@@ -11520,13 +11600,17 @@ function renderWeekView() {
       const timeLabel = allDay
         ? 'Toute la journée'
         : (e.time ? _formatEventRange(e.time, heightMins) : '');
-      const tip = _eventTooltip(e);
+      const conflictWith = conflicts.get(e.id);
+      const baseTip = _eventTooltip(e);
+      const conflictTip = _conflictTooltip(conflictWith);
+      const tip = [baseTip, conflictTip].filter(Boolean).join(' — ');
+      const conflictCls = conflictWith ? ' conflict' : '';
       const avatar = e.createdBy ? _eventActorAvatarHTML(e.createdBy) : '';
       // Resize handle hidden for all-day pills (no duration semantic).
       const resizeHandle = allDay ? '' : '<div class="cal-week-event-resize" data-resize-handle="1"></div>';
       // Per-event tag filter — skip rendering if it doesn't match the active tag.
       if (!_entityMatchesTagFilter(e)) continue;
-      html += `<div class="cal-week-event" data-type="${escapeHtml(e.type)}" data-visibility="${e.visibility === 'private' ? 'private' : 'team'}" data-event-id="${escapeHtml(e.id)}"
+      html += `<div class="cal-week-event${conflictCls}" data-type="${escapeHtml(e.type)}" data-visibility="${e.visibility === 'private' ? 'private' : 'team'}" data-event-id="${escapeHtml(e.id)}"
                     style="top:${top + 2}px; height:${height}px;"${tip ? ` title="${escapeHtml(tip)}"` : ''}>
         ${avatar ? `<div class="cal-week-event-actor">${avatar}</div>` : ''}
         ${timeLabel ? `<div class="cal-week-event-time">${timeLabel}</div>` : ''}
@@ -11850,20 +11934,30 @@ function renderMonthView() {
     const isToday = date.getTime() === today.getTime();
     // Visibility filter: hide private events owned by other users from the month grid.
     const events = filterVisibleEvents(state.events).filter(e => e.date === iso);
+    const conflicts = detectEventConflicts(events);
+    const visibleEvents = events.filter(_entityMatchesTagFilter);
+    const isOverloaded = visibleEvents.length > OVERLOAD_THRESHOLD;
+    const overloadBadge = isOverloaded
+      ? `<span class="cal-cell-overload-flag" title="Journée chargée — ${visibleEvents.length} évènements">⚠ ${visibleEvents.length}</span>`
+      : '';
     html += `
-      <div class="cal-cell ${isToday ? 'today' : ''}" data-date="${iso}">
+      <div class="cal-cell ${isToday ? 'today' : ''}${isOverloaded ? ' overload' : ''}" data-date="${iso}">
         <div class="cal-day">${day}</div>
-        ${events
-          .filter(_entityMatchesTagFilter)
+        ${overloadBadge}
+        ${visibleEvents
           .sort((a,b) => (a.time||'99:99').localeCompare(b.time||'99:99'))
           .map(e => {
-          const tip = _eventTooltip(e);
+          const conflictWith = conflicts.get(e.id);
+          const baseTip = _eventTooltip(e);
+          const conflictTip = _conflictTooltip(conflictWith);
+          const tip = [baseTip, conflictTip].filter(Boolean).join(' — ');
+          const conflictCls = conflictWith ? ' conflict' : '';
           const avatar = e.createdBy ? _eventActorAvatarHTML(e.createdBy) : '';
           // Show duration suffix only when it's not the default 1h — keeps month pills tight.
           const dur = parseInt(e.duration, 10);
           const durSuffix = (e.time && dur && dur !== 60) ? ` <span class="cal-event-dur">(${_formatDuration(dur)})</span>` : '';
           const tagHtml = (Array.isArray(e.tags) && e.tags.length) ? ' ' + tagChipsHTML(e.tags, { limit: 1 }) : '';
-          return `<div class="cal-event" data-type="${escapeHtml(e.type)}" data-visibility="${e.visibility === 'private' ? 'private' : 'team'}" data-event-id="${escapeHtml(e.id)}"${tip ? ` title="${escapeHtml(tip)}"` : ''}>${avatar}${e.time ? `<strong>${formatEventTime(e.time)}</strong>${durSuffix} ` : ''}${escapeHtml(e.title)}${tagHtml}</div>`;
+          return `<div class="cal-event${conflictCls}" data-type="${escapeHtml(e.type)}" data-visibility="${e.visibility === 'private' ? 'private' : 'team'}" data-event-id="${escapeHtml(e.id)}"${tip ? ` title="${escapeHtml(tip)}"` : ''}>${avatar}${e.time ? `<strong>${formatEventTime(e.time)}</strong>${durSuffix} ` : ''}${escapeHtml(e.title)}${tagHtml}</div>`;
         }).join('')}
       </div>
     `;
