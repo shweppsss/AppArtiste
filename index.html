@@ -3606,14 +3606,14 @@
     align-self: flex-start;
     white-space: nowrap;
   }
-  /* When the banner is visible (invitation-only), dim the multi-step form
-     behind it — visually communicates "you can't submit this right now". */
+  /* When the banner is visible (invitation-only), fully hide the multi-step
+     form — no point in showing a dimmed unusable form when the user has
+     to ask the admin for credentials anyway. Banner + "J'ai déjà un compte"
+     link is the entire view. */
   .auth-onboarding.is-invitation-only .onboarding-progress,
   .auth-onboarding.is-invitation-only .onboarding-step,
   .auth-onboarding.is-invitation-only .auth-toggle-row {
-    opacity: 0.45;
-    pointer-events: none;
-    filter: blur(0.3px) saturate(0.7);
+    display: none;
   }
 
   .auth-password-wrap {
