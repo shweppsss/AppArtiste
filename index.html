@@ -16148,34 +16148,51 @@ async function handleDetailCover(id, ev) {
   }
 }
 function detailAudioInitialHTML(t) {
-  if (t.audio && typeof t.audio === 'string' && t.audio.startsWith('data:')) {
-    return `<audio controls src="${t.audio}"></audio><div style="margin-top:10px;"><button class="btn btn-sm" onclick="clearAudio('${t.id}'); openDetail('track','${t.id}');">Retirer l'audio</button></div>`;
-  }
-  if (t.idbAudio) {
-    // Will be hydrated async after openDetail
-    return `<div class="track-audio-loading"><div class="track-audio-loading-inner">Chargement de l'audio…</div></div>`;
+  if ((t.audio && typeof t.audio === 'string' && t.audio.startsWith('data:')) || t.idbAudio) {
+    // Same Untitled-style pill as the catalogue, plus the per-track action row
+    // (download / replace / remove) underneath. Hydrated below with the real
+    // duration + filename once the IDB blob is loaded.
+    return _trackAudioPillHTML(t) + `<div class="track-audio-meta" data-meta-for="${escapeHtml(t.id)}" style="margin-top:10px;"></div>` +
+      `<div class="track-audio-actions" data-actions-for="${escapeHtml(t.id)}" style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;"></div>`;
   }
   return `<label class="detail-audio-empty">+ Charger l'audio (WAV / MP3 / FLAC)<input type="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.aac,.ogg" style="display:none;" onchange="handleDetailAudio('${t.id}', event)" /></label>`;
 }
 
 async function hydrateDetailAudio(trackId) {
   const t = state.tracks.find(x => x.id === trackId);
-  if (!t || !t.idbAudio) return;
+  if (!t || (!t.idbAudio && !(t.audio && typeof t.audio === 'string' && t.audio.startsWith('data:')))) return;
   const data = await getTrackAudioUrl(trackId);
   const slot = document.getElementById('detailAudioSlot-' + trackId);
-  if (slot && data) {
-    slot.innerHTML = `
-      <audio controls preload="metadata" src="${data.url}"></audio>
-      <div class="track-audio-meta" style="margin-top:10px;">${escapeHtml(data.name)} · ${formatBytes(data.size)}</div>
-      <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
-        <a class="btn btn-sm" href="${data.url}" download="${escapeHtml(data.name)}">↓ Télécharger</a>
-        <button class="btn btn-sm" onclick="clearAudio('${t.id}'); openDetail('track','${t.id}');">Retirer</button>
-        <label class="btn btn-sm" style="cursor:pointer;">Remplacer<input type="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.aac,.ogg" style="display:none;" onchange="handleDetailAudio('${t.id}', event)" /></label>
-      </div>
-    `;
-  } else if (slot) {
+  if (!slot) return;
+  if (!data) {
     slot.innerHTML = detailAudioInitialHTML({ id: trackId });
+    return;
   }
+  // Make sure the pill skeleton is present (first open may render before hydrate
+  // finishes if openDetail was navigated to from a cold load).
+  if (!slot.querySelector('.track-audio')) {
+    slot.innerHTML = detailAudioInitialHTML(t);
+  }
+  const meta = slot.querySelector(`[data-meta-for="${trackId}"]`);
+  if (meta) meta.textContent = data.name + ' · ' + formatBytes(data.size);
+  const actions = slot.querySelector(`[data-actions-for="${trackId}"]`);
+  if (actions) {
+    actions.innerHTML = `
+      <a class="btn btn-sm" href="${data.url}" download="${escapeHtml(data.name)}">↓ Télécharger</a>
+      <button class="btn btn-sm" onclick="clearAudio('${trackId}'); openDetail('track','${trackId}');" type="button">Retirer</button>
+      <label class="btn btn-sm" style="cursor:pointer;">Remplacer<input type="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.aac,.ogg" style="display:none;" onchange="handleDetailAudio('${trackId}', event)" /></label>
+    `;
+  }
+  // Duration probe — same trick the catalogue uses.
+  try {
+    const probe = new Audio();
+    probe.preload = 'metadata';
+    probe.src = data.url;
+    probe.addEventListener('loadedmetadata', () => {
+      const pill = slot.querySelector('.track-audio-time');
+      if (pill) pill.textContent = _formatAudioTime(probe.duration);
+    }, { once: true });
+  } catch (e) {}
 }
 
 async function handleDetailAudio(id, ev) {
