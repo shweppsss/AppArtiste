@@ -11523,14 +11523,53 @@ async function hydrateAllAudios() {
   }
 }
 
-// Plays a catalogue track via the MiniPlayer. Resolves the audio URL from
-// the IDB/cloud fallback chain, fetches the cover if any, and hands both
-// to MiniPlayer.show(). Also wires lightweight progress sync back to the
-// originating pill so its bar fills as playback progresses.
-async function playTrackInMini(trackId) {
+// Plays a catalogue track via the MiniPlayer. CRITICAL: this MUST stay
+// synchronous so iOS Safari's autoplay policy accepts the audio.play() call.
+// Any `await` between the click-handler tick and the play() call breaks the
+// user-gesture chain and the play rejects silently (the audio file is fine,
+// nothing happens). Both _audioCache and _coverCache are sync-readable —
+// after hydrateAllAudios / hydrateDetailAudio have run, the URL is right
+// there and we don't need to await anything.
+//
+// If the cache is cold (e.g. the user taps before hydrate completes), we
+// fall back to the async path; iOS will likely reject the first play but
+// the next tap hits the now-warm cache and succeeds.
+//
+// Re-tapping the actively playing track toggles pause/resume on the
+// MiniPlayer instead of restarting from zero — Apple-Music behaviour.
+function playTrackInMini(trackId) {
   const track = (state.tracks || []).find(t => t.id === trackId);
   if (!track) return;
-  const pillBtn = document.querySelector(`.track-audio[data-track-id="${trackId}"] .track-audio-play`);
+  if (_activePillTrackId === trackId) {
+    const audio = document.getElementById('miniPlayerAudio');
+    if (audio) {
+      if (audio.paused) audio.play().catch(() => {});
+      else audio.pause();
+      return;
+    }
+  }
+  const cached = _audioCache[trackId];
+  if (cached && cached.url) {
+    const coverUrl = _coverCache[trackId] || null;
+    MiniPlayer.show(track, cached.url, coverUrl);
+    _bindPillProgress(trackId);
+    if (!coverUrl) {
+      // Pure visual catch-up — doesn't affect playback.
+      getTrackCoverUrl(trackId).then(u => {
+        if (u) {
+          const coverBtn = document.getElementById('miniPlayerCover');
+          if (coverBtn) coverBtn.style.backgroundImage = `url('${u}')`;
+        }
+      }).catch(() => {});
+    }
+    return;
+  }
+  _playTrackInMiniAsync(trackId);
+}
+
+async function _playTrackInMiniAsync(trackId) {
+  const track = (state.tracks || []).find(t => t.id === trackId);
+  if (!track) return;
   const audioData = await getTrackAudioUrl(trackId);
   if (!audioData || !audioData.url) {
     toast('Audio introuvable — recharge l\'app.');
@@ -11540,10 +11579,6 @@ async function playTrackInMini(trackId) {
   try { coverUrl = await getTrackCoverUrl(trackId); } catch (e) {}
   MiniPlayer.show(track, audioData.url, coverUrl);
   _bindPillProgress(trackId);
-  if (pillBtn) {
-    pillBtn.dataset.state = 'playing';
-    pillBtn.innerHTML = PAUSE_ICON_SVG;
-  }
 }
 
 // Mirrors MiniPlayer's audio currentTime onto the originating pill so the
