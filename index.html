@@ -3667,55 +3667,8 @@
   }
 
   /* ============================
-     AUTH — invitation-only banner + password reveal toggle
+     AUTH — password reveal toggle
      ============================ */
-  .auth-invitation-banner {
-    display: flex;
-    align-items: flex-start;
-    gap: 14px;
-    padding: 16px 18px;
-    background: linear-gradient(135deg, rgba(255,184,77,0.10), rgba(10,132,255,0.04));
-    border: 1px solid rgba(255,184,77,0.32);
-    border-radius: var(--radius);
-    margin-bottom: 18px;
-  }
-  .auth-invitation-banner[hidden] { display: none; }
-  .auth-invitation-icon {
-    font-size: 22px;
-    line-height: 1;
-    flex-shrink: 0;
-  }
-  .auth-invitation-body {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    flex: 1;
-    min-width: 0;
-  }
-  .auth-invitation-body strong {
-    font: var(--font-body-l);
-    font-weight: 600;
-    color: var(--text);
-  }
-  .auth-invitation-body span {
-    font: var(--font-caption);
-    color: var(--text-soft);
-    line-height: 1.45;
-  }
-  .auth-invitation-banner .auth-link {
-    align-self: flex-start;
-    white-space: nowrap;
-  }
-  /* When the banner is visible (invitation-only), fully hide the multi-step
-     form — no point in showing a dimmed unusable form when the user has
-     to ask the admin for credentials anyway. Banner + "J'ai déjà un compte"
-     link is the entire view. */
-  .auth-onboarding.is-invitation-only .onboarding-progress,
-  .auth-onboarding.is-invitation-only .onboarding-step,
-  .auth-onboarding.is-invitation-only .auth-toggle-row {
-    display: none;
-  }
-
   .auth-password-wrap {
     position: relative;
     display: flex;
@@ -6485,17 +6438,6 @@
          Supabase needs). Onboarding state lives in window._onboardingState
          which is rebuilt each time the user opens the signup form. -->
     <form id="authSignUpView" class="auth-form auth-onboarding" onsubmit="signUpUser(event)" style="display:none;">
-      <!-- Invitation-only banner — populated by _renderSignupInvitationState()
-           when auth/v1/settings.disable_signup = true. Hidden by default. -->
-      <div class="auth-invitation-banner" id="signupInvitationBanner" hidden>
-        <div class="auth-invitation-icon" aria-hidden="true">🔒</div>
-        <div class="auth-invitation-body">
-          <strong>Workspace sur invitation</strong>
-          <span>Pour rejoindre Noname × Degzzy, demande un accès à l'admin. Tu pourras ensuite te connecter avec les identifiants reçus.</span>
-        </div>
-        <button type="button" class="auth-link" onclick="showSignIn()">J'ai déjà un compte →</button>
-      </div>
-
       <div class="onboarding-progress" role="progressbar" aria-label="Étape de l'inscription">
         <button type="button" class="onboarding-progress-dot active" data-step="1" aria-label="Étape 1 sur 4"><span>1</span></button>
         <span class="onboarding-progress-line"></span>
@@ -9590,12 +9532,6 @@ function _renderOnboardingRecap() {
    then moves on. Validation errors surface via toast (consistent with the
    rest of the app) — no native alert(). */
 function onboardingNext() {
-  // Gate: if signup is disabled at the server, don't let the user move
-  // through the form at all. The banner already explains why.
-  if (_authSettings !== null && !isSignupEnabled()) {
-    toast('Inscription désactivée pour ce workspace. Demande un accès à l\'admin.');
-    return;
-  }
   if (_onboardingStep === 1) {
     const first = (document.getElementById('signUpFirstName') || {}).value.trim();
     const email = (document.getElementById('signUpEmail') || {}).value.trim();
@@ -9655,13 +9591,9 @@ async function signUpUser(ev) {
     _showOnboardingStep(1);
     return;
   }
-  // Final server-state guard: if signups were turned off between page load
-  // and submit, fail fast with a clear message instead of letting Supabase
-  // return a generic 422.
-  if (_authSettings !== null && !isSignupEnabled()) {
-    toast('Inscription désactivée pour ce workspace. Contacte l\'admin.');
-    return;
-  }
+  // If signups happen to be disabled server-side, mapAuthError() will catch
+  // the 422 in the try/catch below and surface a clear French toast — no
+  // need to gate the UI here anymore.
   const btn = document.getElementById('signUpButton');
   btn.classList.add('auth-loading');
   btn.disabled = true;
@@ -10258,25 +10190,6 @@ function showSetup() { showAuthView('authSetupView'); }
 /* Renders the invitation-only state on the signup form based on the cached
    auth/v1/settings response. When signup is disabled, the banner is shown
    and the multi-step form is visually de-emphasized + non-interactive. */
-function _renderSignupInvitationState() {
-  const banner = document.getElementById('signupInvitationBanner');
-  const form = document.getElementById('authSignUpView');
-  if (!banner || !form) return;
-  if (_authSettings === null) {
-    // Settings haven't loaded yet — assume open until we know better.
-    banner.hidden = true;
-    form.classList.remove('is-invitation-only');
-    return;
-  }
-  if (!isSignupEnabled()) {
-    banner.hidden = false;
-    form.classList.add('is-invitation-only');
-  } else {
-    banner.hidden = true;
-    form.classList.remove('is-invitation-only');
-  }
-}
-
 /* Toggle a password input's visibility. Pure DOM, no state — the button text
    itself doubles as the indicator. Works on any input id passed in. */
 function toggleAuthPassword(inputId, btn) {
@@ -10290,10 +10203,9 @@ function showSignIn() { showAuthView('authSignInView'); document.getElementById(
 function showSignUp() {
   showAuthView('authSignUpView');
   document.getElementById('authTag').textContent = 'Rejoins l\'équipe Noname × Degzzy.';
-  // Invitation-only state: if signup is disabled at the Supabase auth layer,
-  // we surface a clear "Sur invitation" banner and route the primary CTA to
-  // signin instead of letting the user fill 4 steps then fail.
-  _renderSignupInvitationState();
+  // Note: if Supabase has disable_signup=true the submit will fail at the
+  // server with a clear French toast (mapAuthError maps signup_disabled).
+  // No UI gate here — admin re-enables signups via Supabase Dashboard when ready.
   // 4-step onboarding state lives in _onboardingState; reset it each time the
   // user lands on the signup view so an aborted flow doesn't bleed into a
   // fresh attempt. Renders the role grid + progress bar + step 1.
