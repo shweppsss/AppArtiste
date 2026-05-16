@@ -7505,6 +7505,167 @@
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script>
+/* ============================================================================
+   App.Runtime — Phase 0.1 of the incremental modularization plan v3.
+
+   Generic lifecycle registry. Tracks timers, intervals, animation frames,
+   event listeners, MutationObservers, IntersectionObservers, and arbitrary
+   unsubscribe functions. Provides idempotent dispose() so future modules can
+   extract cleanly without leaking handles.
+
+   DESIGN RULES (non-negotiable):
+   - Generic only. ZERO domain knowledge (no Supabase, no audio, no state).
+   - All side-effect APIs return a disposer or are auto-tracked.
+   - createScope(name) returns a child registry with isolated dispose().
+   - dispose() is idempotent.
+   - Errors in disposers are caught and logged, never thrown.
+   - No async (Runtime itself is fully sync; consumers manage their own).
+   - No classes, no `this` binding.
+
+   This block is ADDITIVE only. Existing setTimeout / addEventListener / etc.
+   calls elsewhere in this file remain untouched. Migration to Runtime usage
+   happens incrementally during future phases — never in a sweep.
+   ============================================================================ */
+window.App = window.App || {};
+
+window.App.Runtime = (function () {
+  function createScope(name) {
+    var disposers = new Set();
+    var timers = new Set();
+    var intervals = new Set();
+    var rafs = new Set();
+    var observers = new Set();
+    var _disposed = false;
+
+    function setTimeout(fn, ms) {
+      var id = window.setTimeout(function () {
+        timers.delete(id);
+        if (_disposed) return;
+        try { fn(); } catch (e) { console.error('[Runtime/' + name + '] setTimeout cb:', e); }
+      }, ms);
+      timers.add(id);
+      return id;
+    }
+    function clearTimeout(id) { window.clearTimeout(id); timers.delete(id); }
+
+    function setInterval(fn, ms) {
+      var id = window.setInterval(function () {
+        if (_disposed) return;
+        try { fn(); } catch (e) { console.error('[Runtime/' + name + '] setInterval cb:', e); }
+      }, ms);
+      intervals.add(id);
+      return id;
+    }
+    function clearInterval(id) { window.clearInterval(id); intervals.delete(id); }
+
+    function requestAnimationFrame(fn) {
+      var id = window.requestAnimationFrame(function (t) {
+        rafs.delete(id);
+        if (_disposed) return;
+        try { fn(t); } catch (e) { console.error('[Runtime/' + name + '] rAF cb:', e); }
+      });
+      rafs.add(id);
+      return id;
+    }
+    function cancelAnimationFrame(id) { window.cancelAnimationFrame(id); rafs.delete(id); }
+
+    function addEventListener(target, event, fn, options) {
+      target.addEventListener(event, fn, options);
+      var disposer = function () {
+        try { target.removeEventListener(event, fn, options); } catch (e) {}
+      };
+      disposers.add(disposer);
+      return disposer;
+    }
+
+    function observe(target, callback, options) {
+      var obs = new MutationObserver(callback);
+      obs.observe(target, options);
+      observers.add(obs);
+      var disposer = function () {
+        try { obs.disconnect(); } catch (e) {}
+        observers.delete(obs);
+      };
+      disposers.add(disposer);
+      return obs;
+    }
+
+    function intersectionObserve(target, callback, options) {
+      var obs = new IntersectionObserver(callback, options);
+      obs.observe(target);
+      observers.add(obs);
+      var disposer = function () {
+        try { obs.disconnect(); } catch (e) {}
+        observers.delete(obs);
+      };
+      disposers.add(disposer);
+      return obs;
+    }
+
+    function subscribe(unsubFn) {
+      if (typeof unsubFn === 'function') disposers.add(unsubFn);
+      return unsubFn;
+    }
+    function onDispose(fn) {
+      if (typeof fn === 'function') disposers.add(fn);
+      return fn;
+    }
+
+    function dispose() {
+      if (_disposed) return;
+      _disposed = true;
+      timers.forEach(function (id) { window.clearTimeout(id); });
+      intervals.forEach(function (id) { window.clearInterval(id); });
+      rafs.forEach(function (id) { window.cancelAnimationFrame(id); });
+      observers.forEach(function (o) { try { o.disconnect(); } catch (e) {} });
+      disposers.forEach(function (d) {
+        try { d(); } catch (e) { console.warn('[Runtime/' + name + '] disposer:', e); }
+      });
+      timers.clear(); intervals.clear(); rafs.clear();
+      observers.clear(); disposers.clear();
+    }
+
+    return Object.freeze({
+      name: name,
+      setTimeout: setTimeout,
+      clearTimeout: clearTimeout,
+      setInterval: setInterval,
+      clearInterval: clearInterval,
+      requestAnimationFrame: requestAnimationFrame,
+      cancelAnimationFrame: cancelAnimationFrame,
+      addEventListener: addEventListener,
+      observe: observe,
+      intersectionObserve: intersectionObserve,
+      subscribe: subscribe,
+      onDispose: onDispose,
+      dispose: dispose,
+      get disposed() { return _disposed; },
+      _state: { disposers: disposers, timers: timers, intervals: intervals, rafs: rafs, observers: observers },
+    });
+  }
+
+  // The "global" scope is the default registry used by Runtime's top-level API.
+  // Module-level code that needs isolated cleanup should call createScope('name').
+  var globalScope = createScope('global');
+
+  return Object.freeze({
+    setTimeout: globalScope.setTimeout,
+    clearTimeout: globalScope.clearTimeout,
+    setInterval: globalScope.setInterval,
+    clearInterval: globalScope.clearInterval,
+    requestAnimationFrame: globalScope.requestAnimationFrame,
+    cancelAnimationFrame: globalScope.cancelAnimationFrame,
+    addEventListener: globalScope.addEventListener,
+    observe: globalScope.observe,
+    intersectionObserve: globalScope.intersectionObserve,
+    subscribe: globalScope.subscribe,
+    onDispose: globalScope.onDispose,
+    dispose: globalScope.dispose,
+    createScope: createScope,
+    _global: globalScope,
+  });
+})();
+
 /* ============================
    GLOBAL ERROR LOGGERS — surface boot-time errors instead of silently failing
    ============================ */
