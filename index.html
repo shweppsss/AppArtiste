@@ -3057,40 +3057,59 @@
   /* ============================
      DETAIL PAGE OVERLAY
      ============================ */
+  /* Detail overlay — three-layer architecture to bypass the iOS Safari
+     "sticky inside fixed+overflow" overscroll bug:
+       1. .detail-overlay : fullscreen container (bg + z-index only, no scroll)
+       2. .detail-header  : absolutely pinned to the top, layer above scroll
+       3. .detail-scroll  : the actual scrolling surface, padded under the header
+     100dvh (with 100vh fallback) keeps the layout stable when iOS Safari's
+     URL bar collapses on scroll. */
   .detail-overlay {
     position: fixed;
     inset: 0;
+    height: 100vh;
+    height: 100dvh;
     background: var(--bg);
     z-index: 400;
     display: none;
-    flex-direction: column;
-    overflow-y: auto;
-    padding-bottom: env(safe-area-inset-bottom, 20px);
   }
   .detail-overlay.open {
-    display: flex;
+    display: block;
     animation: detailIn 380ms var(--ease-emphasized);
   }
   /* Sheet-style slide-up — mirrors the way Apple Music expands its mini-player
-     into the Now Playing screen. Starts 32px below + slightly scaled-down +
-     transparent, settles into place. Reduced-motion users get an instant fade
-     via the global @media block. */
+     into the Now Playing screen. */
   @keyframes detailIn {
     from { opacity: 0; transform: translateY(32px) scale(0.985); }
     to   { opacity: 1; transform: translateY(0)    scale(1);     }
   }
   .detail-header {
-    position: sticky;
+    position: absolute;
     top: 0;
+    left: 0;
+    right: 0;
     background: rgba(10,10,10,0.85);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
+    /* Safe-area-aware top padding so the back button sits below the notch /
+       Dynamic Island on every iPhone. */
     padding: max(env(safe-area-inset-top, 16px), 16px) 28px 16px;
     display: flex;
     align-items: center;
     gap: 16px;
     border-bottom: 1px solid var(--border);
-    z-index: 1;
+    z-index: 10;
+  }
+  .detail-scroll {
+    position: absolute;
+    inset: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    /* Reserve room for the absolutely-positioned header. The 56px is the
+       header's content height (back button + padding-bottom) on top of the
+       safe-area-inset-top consumed by the header's padding. */
+    padding-top: calc(max(env(safe-area-inset-top, 16px), 16px) + 56px);
+    padding-bottom: env(safe-area-inset-bottom, 20px);
   }
   .detail-back {
     background: transparent;
@@ -3443,6 +3462,11 @@
 
   @media (max-width: 820px) {
     .detail-header { padding: max(env(safe-area-inset-top, 12px), 12px) 16px 12px; }
+    /* Mobile header padding-top is slightly tighter — recompute scroll padding
+       to match so the cover lands flush below the header on both breakpoints. */
+    .detail-scroll {
+      padding-top: calc(max(env(safe-area-inset-top, 12px), 12px) + 52px);
+    }
     .detail-body { padding: 22px 18px 60px; }
     .detail-title { font-size: 28px; }
     .detail-section { padding: 18px 18px; }
@@ -7402,12 +7426,19 @@
 </div>
 
 <!-- ============================ DETAIL PAGE OVERLAY ============================ -->
+<!-- Structure: overlay is the fullscreen container (background + z-index only).
+     header sits absolutely at top (NOT sticky — sticky inside fixed+overflow
+     misbehaves on iOS Safari during overscroll bounce). detail-scroll is the
+     dedicated scroll surface, padded under the header so content slides
+     beneath it cleanly. -->
 <div class="detail-overlay" id="detailOverlay">
   <div class="detail-header">
     <button class="detail-back" onclick="closeDetail()">← Retour</button>
     <div class="detail-kind" id="detailKind"></div>
   </div>
-  <div class="detail-body" id="detailBody"></div>
+  <div class="detail-scroll" id="detailScroll">
+    <div class="detail-body" id="detailBody"></div>
+  </div>
 </div>
 
 <!-- ============================ INSPI MODAL ============================ -->
@@ -7614,6 +7645,10 @@ const MiniPlayer = (() => {
     subEl = document.getElementById('miniPlayerSub');
     closeBtn = document.getElementById('miniPlayerClose');
     if (!audio || !playBtn) return;
+    // Wire the audio element to the global AudioStore. All pill UI (catalogue,
+    // detail, mini-player) reflects state from the store rather than each
+    // listener reaching into the DOM independently.
+    if (typeof _hookAudioToStore === 'function') _hookAudioToStore(audio);
     playBtn.innerHTML = icon('play', 18);
     closeBtn.innerHTML = icon('close', 14);
     // Buttons inside the pill stop propagation so the surrounding "open detail"
@@ -7680,6 +7715,7 @@ const MiniPlayer = (() => {
   function show(track, audioUrl, coverUrl) {
     init();
     if (!el || !track) return;
+    const isNewTrack = currentTrackId !== track.id;
     currentTrackId = track.id;
     const title = track.name || 'Sans titre';
     const statusFn = typeof statusLabel === 'function' ? statusLabel : (() => '');
@@ -7687,6 +7723,12 @@ const MiniPlayer = (() => {
     titleEl.textContent = title;
     subEl.textContent = subtitle;
     coverBtn.style.backgroundImage = coverUrl ? `url('${coverUrl}')` : 'none';
+    // Notify the store BEFORE swapping src so any pill in the DOM transitions
+    // its "active" highlight instantly, and the previous active pill resets to
+    // 0% / play-icon without waiting for the new audio events to fire.
+    if (isNewTrack && typeof _setAudioState === 'function') {
+      _setAudioState({ trackId: track.id, currentTime: 0, duration: 0, loading: true });
+    }
     if (audio.src !== audioUrl) audio.src = audioUrl;
     el.hidden = false;
     // Surface metadata to the iOS lock screen / Control Center / Apple Watch /
@@ -7715,6 +7757,10 @@ const MiniPlayer = (() => {
     audio.src = '';
     el.hidden = true;
     currentTrackId = null;
+    // Clear the store so every pill in the DOM reverts to inactive/0%.
+    if (typeof _setAudioState === 'function') {
+      _setAudioState({ trackId: null, isPlaying: false, currentTime: 0, duration: 0, loading: false });
+    }
   }
   return { init, show, hide };
 })();
@@ -11569,20 +11615,127 @@ async function hydrateAllCovers() {
 const PLAY_ICON_SVG  = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
 const PAUSE_ICON_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>';
 
+/* ============================
+   AUDIO STORE — single source of truth for playback state
+   ============================
+   Every pill in the app (catalogue card, detail view, mini-player) renders
+   from this store and subscribes to its changes via _syncAllPills. The
+   MiniPlayer's <audio> element is the only real playback surface; its DOM
+   events patch the store, and the subscriber reconciles every pill in the
+   DOM on every state change.
+
+   This replaces the previous _activePillTrackId / _bindPillProgress pattern
+   which queried the DOM at event time — broken across re-renders because
+   pill nodes that didn't exist at the time of the play call never received
+   updates. The store-driven approach survives renderCatalogue, openDetail,
+   route changes, and realtime sync: any new pill DOM node that lands in
+   the document picks up the current state on the next reconcile pass. */
+const _audioState = {
+  trackId:     null, // currently loaded track id, or null
+  isPlaying:   false,
+  currentTime: 0,
+  duration:    0,
+  loading:     false,
+};
+const _audioSubscribers = new Set();
+function getAudioState() { return _audioState; }
+function subscribeAudio(fn) {
+  _audioSubscribers.add(fn);
+  try { fn(_audioState); } catch (e) {}
+  return () => _audioSubscribers.delete(fn);
+}
+function _setAudioState(patch) {
+  let changed = false;
+  for (const k in patch) {
+    if (_audioState[k] !== patch[k]) { _audioState[k] = patch[k]; changed = true; }
+  }
+  if (!changed) return;
+  for (const fn of _audioSubscribers) {
+    try { fn(_audioState); } catch (e) { console.warn('[audio] subscriber failed:', e); }
+  }
+}
+
+// Hooks the single MiniPlayer <audio> element to the store. Idempotent —
+// guarded by the _noNameStoreBound flag so we don't double-bind even if
+// MiniPlayer.init() runs more than once. timeupdate is throttled via rAF
+// because it can fire 60+ times per second.
+function _hookAudioToStore(audio) {
+  if (!audio || audio._noNameStoreBound) return;
+  audio._noNameStoreBound = true;
+  let rafScheduled = false;
+  audio.addEventListener('play',           () => _setAudioState({ isPlaying: true,  loading: false }));
+  audio.addEventListener('pause',          () => _setAudioState({ isPlaying: false }));
+  audio.addEventListener('ended',          () => _setAudioState({ isPlaying: false, currentTime: 0 }));
+  audio.addEventListener('loadedmetadata', () => _setAudioState({ duration: audio.duration || 0 }));
+  audio.addEventListener('durationchange', () => _setAudioState({ duration: audio.duration || 0 }));
+  audio.addEventListener('loadstart',      () => _setAudioState({ loading: true }));
+  audio.addEventListener('canplay',        () => _setAudioState({ loading: false }));
+  audio.addEventListener('error',          () => _setAudioState({ loading: false }));
+  audio.addEventListener('timeupdate', () => {
+    if (rafScheduled) return;
+    rafScheduled = true;
+    requestAnimationFrame(() => {
+      rafScheduled = false;
+      _setAudioState({ currentTime: audio.currentTime });
+    });
+  });
+}
+
+// Reconciles every pill in the DOM with the current audio state. Only one
+// pill (the one whose data-track-id matches state.trackId AND state.isPlaying)
+// is visually "playing"; everyone else displays the play icon and 0% fill.
+// Diff-aware writes — we only touch the DOM when the value actually changes,
+// which keeps the per-frame timeupdate path cheap.
+function _syncAllPills(state) {
+  const pills = document.querySelectorAll('.track-audio[data-track-id]');
+  pills.forEach(pill => {
+    const id = pill.dataset.trackId;
+    const isActive = id === state.trackId;
+    const isPlayingHere = isActive && state.isPlaying;
+    const btn = pill.querySelector('.track-audio-play');
+    if (btn) {
+      const wantIcon = isPlayingHere ? PAUSE_ICON_SVG : PLAY_ICON_SVG;
+      if (btn._iconKey !== (isPlayingHere ? 'pause' : 'play')) {
+        btn.innerHTML = wantIcon;
+        btn._iconKey = isPlayingHere ? 'pause' : 'play';
+      }
+      const wantState = isPlayingHere ? 'playing' : '';
+      if (btn.dataset.state !== wantState) btn.dataset.state = wantState;
+    }
+    const fill = pill.querySelector('.track-audio-progress-fill');
+    if (fill) {
+      let pct = 0;
+      if (isActive && state.duration > 0) pct = (state.currentTime / state.duration) * 100;
+      const wantWidth = pct.toFixed(2) + '%';
+      if (fill.style.width !== wantWidth) fill.style.width = wantWidth;
+    }
+  });
+}
+subscribeAudio(_syncAllPills);
+
+// Pill HTML — reads from _audioState so a fresh render lands with the right
+// icon + fill. Subsequent state changes flow through the subscriber above.
 function _trackAudioPillHTML(t, durationLabel) {
+  const isActive = _audioState.trackId === t.id;
+  const isPlayingHere = isActive && _audioState.isPlaying;
+  const iconHTML = isPlayingHere ? PAUSE_ICON_SVG : PLAY_ICON_SVG;
+  const stateAttr = isPlayingHere ? ' data-state="playing"' : '';
+  let fillPct = 0;
+  if (isActive && _audioState.duration > 0) fillPct = (_audioState.currentTime / _audioState.duration) * 100;
+  const timeLabel = isActive && _audioState.duration > 0
+    ? _formatAudioTime(_audioState.duration)
+    : (durationLabel || '0:00');
   return `
     <div class="track-audio" data-track-id="${escapeHtml(t.id)}">
-      <button class="track-audio-play" type="button" aria-label="Lecture / pause" onclick="playTrackInMini('${escapeHtml(t.id)}')">${PLAY_ICON_SVG}</button>
-      <div class="track-audio-progress"><div class="track-audio-progress-fill"></div></div>
-      <span class="track-audio-time">${durationLabel || '0:00'}</span>
+      <button class="track-audio-play" type="button" aria-label="Lecture / pause" onclick="playTrackInMini('${escapeHtml(t.id)}')"${stateAttr}>${iconHTML}</button>
+      <div class="track-audio-progress"><div class="track-audio-progress-fill" style="width:${fillPct.toFixed(2)}%"></div></div>
+      <span class="track-audio-time">${timeLabel}</span>
     </div>
   `;
 }
 
 function trackAudioInitialHTML(t) {
   if ((t.audio && typeof t.audio === 'string' && t.audio.startsWith('data:')) || t.idbAudio) {
-    // Legacy base64 OR IDB-stored audio — show the pill immediately so the
-    // user sees a play button. The hydration pass below updates duration/meta.
     return _trackAudioPillHTML(t) + `<div class="track-audio-meta" data-meta-for="${escapeHtml(t.id)}"></div>`;
   }
   return `
@@ -11608,44 +11761,33 @@ async function hydrateAllAudios() {
     const slot = document.querySelector(`.track-audio-slot[data-track-id="${t.id}"]`);
     if (!slot) continue;
     if (!data) {
-      // IDB marker but file missing — fall back to upload prompt.
       slot.innerHTML = trackAudioInitialHTML({ id: t.id });
       continue;
     }
     const meta = slot.querySelector(`[data-meta-for="${t.id}"]`);
     if (meta) meta.textContent = data.name + ' · ' + formatBytes(data.size);
-    // Probe duration with a throwaway <audio> so the time label reflects the
-    // file before the user hits play. No autoplay, no controls — invisible.
+    // Duration probe for inactive tracks so the time label reflects the file
+    // before the user plays. The active track's time comes from _audioState
+    // via the subscriber — never overwrite that label here.
     try {
       const probe = new Audio();
       probe.preload = 'metadata';
       probe.src = data.url;
       probe.addEventListener('loadedmetadata', () => {
-        const pill = document.querySelector(`.track-audio[data-track-id="${t.id}"] .track-audio-time`);
-        if (pill) pill.textContent = _formatAudioTime(probe.duration);
+        if (_audioState.trackId === t.id) return; // active track — store owns the label
+        const pillTime = document.querySelector(`.track-audio[data-track-id="${t.id}"] .track-audio-time`);
+        if (pillTime) pillTime.textContent = _formatAudioTime(probe.duration);
       }, { once: true });
     } catch (e) {}
   }
 }
 
-// Plays a catalogue track via the MiniPlayer. CRITICAL: this MUST stay
-// synchronous so iOS Safari's autoplay policy accepts the audio.play() call.
-// Any `await` between the click-handler tick and the play() call breaks the
-// user-gesture chain and the play rejects silently (the audio file is fine,
-// nothing happens). Both _audioCache and _coverCache are sync-readable —
-// after hydrateAllAudios / hydrateDetailAudio have run, the URL is right
-// there and we don't need to await anything.
-//
-// If the cache is cold (e.g. the user taps before hydrate completes), we
-// fall back to the async path; iOS will likely reject the first play but
-// the next tap hits the now-warm cache and succeeds.
-//
-// Re-tapping the actively playing track toggles pause/resume on the
-// MiniPlayer instead of restarting from zero — Apple-Music behaviour.
+/* Plays a catalogue / detail track via the MiniPlayer. CRITICAL: must stay
+   synchronous so iOS Safari's autoplay policy accepts audio.play() inside
+   the user-gesture task — any await between the tap and play() rejects. */
 function playTrackInMini(trackId) {
-  const track = (state.tracks || []).find(t => t.id === trackId);
-  if (!track) return;
-  if (_activePillTrackId === trackId) {
+  // Same active track → toggle pause/resume on the existing playback.
+  if (_audioState.trackId === trackId) {
     const audio = document.getElementById('miniPlayerAudio');
     if (audio) {
       if (audio.paused) audio.play().catch(() => {});
@@ -11653,13 +11795,13 @@ function playTrackInMini(trackId) {
       return;
     }
   }
+  const track = (state.tracks || []).find(t => t.id === trackId);
+  if (!track) return;
   const cached = _audioCache[trackId];
   if (cached && cached.url) {
     const coverUrl = _coverCache[trackId] || null;
     MiniPlayer.show(track, cached.url, coverUrl);
-    _bindPillProgress(trackId);
     if (!coverUrl) {
-      // Pure visual catch-up — doesn't affect playback.
       getTrackCoverUrl(trackId).then(u => {
         if (u) {
           const coverBtn = document.getElementById('miniPlayerCover');
@@ -11683,48 +11825,6 @@ async function _playTrackInMiniAsync(trackId) {
   let coverUrl = null;
   try { coverUrl = await getTrackCoverUrl(trackId); } catch (e) {}
   MiniPlayer.show(track, audioData.url, coverUrl);
-  _bindPillProgress(trackId);
-}
-
-// Mirrors MiniPlayer's audio currentTime onto the originating pill so the
-// user sees the same progress on the row they clicked. Only one pill at a
-// time is "active" — the previous one resets when a new track starts.
-let _activePillTrackId = null;
-function _bindPillProgress(trackId) {
-  const audio = document.getElementById('miniPlayerAudio');
-  if (!audio) return;
-  if (_activePillTrackId && _activePillTrackId !== trackId) {
-    const prev = document.querySelector(`.track-audio[data-track-id="${_activePillTrackId}"]`);
-    if (prev) {
-      const fill = prev.querySelector('.track-audio-progress-fill');
-      if (fill) fill.style.width = '0%';
-      const btn = prev.querySelector('.track-audio-play');
-      if (btn) { btn.dataset.state = ''; btn.innerHTML = PLAY_ICON_SVG; }
-    }
-  }
-  _activePillTrackId = trackId;
-  if (audio._noNameBound) return;
-  audio._noNameBound = true;
-  audio.addEventListener('timeupdate', () => {
-    if (!_activePillTrackId || !audio.duration) return;
-    const pct = (audio.currentTime / audio.duration) * 100;
-    const fill = document.querySelector(`.track-audio[data-track-id="${_activePillTrackId}"] .track-audio-progress-fill`);
-    if (fill) fill.style.width = pct.toFixed(2) + '%';
-  });
-  audio.addEventListener('play', () => {
-    const btn = document.querySelector(`.track-audio[data-track-id="${_activePillTrackId}"] .track-audio-play`);
-    if (btn) { btn.dataset.state = 'playing'; btn.innerHTML = PAUSE_ICON_SVG; }
-  });
-  audio.addEventListener('pause', () => {
-    const btn = document.querySelector(`.track-audio[data-track-id="${_activePillTrackId}"] .track-audio-play`);
-    if (btn) { btn.dataset.state = ''; btn.innerHTML = PLAY_ICON_SVG; }
-  });
-  audio.addEventListener('ended', () => {
-    const fill = document.querySelector(`.track-audio[data-track-id="${_activePillTrackId}"] .track-audio-progress-fill`);
-    if (fill) fill.style.width = '0%';
-    const btn = document.querySelector(`.track-audio[data-track-id="${_activePillTrackId}"] .track-audio-play`);
-    if (btn) { btn.dataset.state = ''; btn.innerHTML = PLAY_ICON_SVG; }
-  });
 }
 
 async function handleTrackAudioUpload(trackId, ev) {
