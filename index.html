@@ -6584,13 +6584,20 @@
       <div class="auth-avatar-big" id="authPinSetupAvatar">?</div>
       <div class="auth-pin-greet" style="text-align:center;">Bienvenue <strong id="authPinSetupName">—</strong></div>
       <div class="auth-help" style="text-align:center; margin-bottom: 10px;">Choisis un code à 4 chiffres pour déverrouiller l'app rapidement sur cet appareil.</div>
+      <!-- PIN setup inputs:
+           - placeholder=" " (single space) makes :placeholder-shown match when
+             empty → :invalid CSS doesn't paint the red border on a clean form.
+           - Pattern attribute removed: iOS Safari's native validation popover
+             over a 4-digit "password" input was firing silently and looking
+             like "nothing happens" to the user. Validation is JS-only via
+             setLocalPin() — clear toast + shake animation on failure. -->
       <div class="auth-field" style="text-align:center;">
         <label>Code à 4 chiffres</label>
-        <input id="pinSetup1" type="password" maxlength="4" pattern="[0-9]{4}" inputmode="numeric" required autocomplete="off" style="text-align:center; letter-spacing: 0.5em; font-size: 24px;" />
+        <input id="pinSetup1" type="password" maxlength="4" inputmode="numeric" autocomplete="off" placeholder=" " style="text-align:center; letter-spacing: 0.5em; font-size: 24px;" />
       </div>
       <div class="auth-field" style="text-align:center;">
         <label>Confirme le code</label>
-        <input id="pinSetup2" type="password" maxlength="4" pattern="[0-9]{4}" inputmode="numeric" required autocomplete="off" style="text-align:center; letter-spacing: 0.5em; font-size: 24px;" />
+        <input id="pinSetup2" type="password" maxlength="4" inputmode="numeric" autocomplete="off" placeholder=" " style="text-align:center; letter-spacing: 0.5em; font-size: 24px;" />
       </div>
       <button type="submit" class="auth-submit">Définir le code</button>
       <button type="button" class="auth-link" onclick="signOutUser()">← Se déconnecter</button>
@@ -9762,9 +9769,17 @@ async function postAuthFlow() {
 
 async function setLocalPin(ev) {
   ev.preventDefault();
-  const a = document.getElementById('pinSetup1').value;
-  const b = document.getElementById('pinSetup2').value;
-  if (!/^\d{4}$/.test(a)) { toast('Le code doit faire 4 chiffres.'); return; }
+  // Normalize: trim + keep digits only (iOS Safari sometimes injects
+  // suggestion whitespace into a password field on autofill).
+  const rawA = (document.getElementById('pinSetup1').value || '').replace(/\D/g, '');
+  const rawB = (document.getElementById('pinSetup2').value || '').replace(/\D/g, '');
+  const a = rawA;
+  const b = rawB;
+  if (!/^\d{4}$/.test(a)) {
+    toast('Le code doit faire exactement 4 chiffres.');
+    haptic(60);
+    return;
+  }
   if (isWeakPin(a)) {
     toast('Code trop facile à deviner. Évite 0000, 1234, 1111, etc.');
     haptic(60);
@@ -9779,8 +9794,15 @@ async function setLocalPin(ev) {
     document.getElementById('pinSetup2').value = '';
     haptic(60);
     const card = document.querySelector('.auth-card');
-    card.style.animation = 'shakeX 320ms';
-    setTimeout(() => { card.style.animation = ''; }, 360);
+    if (card) { card.style.animation = 'shakeX 320ms'; setTimeout(() => { card.style.animation = ''; }, 360); }
+    return;
+  }
+  // Defensive: if we got here without a user (race with sign-up flow on slow
+  // networks), surface a clear message instead of throwing on `.id`.
+  if (!_currentUser || !_currentUser.id) {
+    console.error('[setLocalPin] _currentUser missing — cannot save PIN');
+    toast('Session expirée. Reconnecte-toi pour finaliser.');
+    setTimeout(() => { try { signOutUser(); } catch (e) {} }, 1500);
     return;
   }
   const localPinKey = LOCAL_PIN_KEY_PREFIX + _currentUser.id;
@@ -9792,17 +9814,20 @@ async function setLocalPin(ev) {
     haptic(20);
     // Offer biometric unlock if the device supports it. Non-blocking — if the
     // user dismisses the OS prompt or the API isn't available we proceed to
-    // enterApp() with the PIN alone.
-    if (typeof isWebAuthnAvailable === 'function' && await isWebAuthnAvailable()) {
-      if (confirm('Activer Face ID / Touch ID pour des connexions plus rapides sur cet appareil ?')) {
-        const ok = await enrollWebAuthn();
-        if (ok) toast('Face ID activé sur cet appareil.');
+    // enterApp() with the PIN alone. Each step in its own try/catch so a
+    // WebAuthn failure can never strand the user on this screen.
+    try {
+      if (typeof isWebAuthnAvailable === 'function' && await isWebAuthnAvailable()) {
+        if (confirm('Activer Face ID / Touch ID pour des connexions plus rapides sur cet appareil ?')) {
+          const ok = await enrollWebAuthn();
+          if (ok) toast('Face ID activé sur cet appareil.');
+        }
       }
-    }
+    } catch (webauthnErr) { console.warn('[setLocalPin] WebAuthn enrollment skipped:', webauthnErr); }
     enterApp();
   } catch (e) {
-    console.error('hashPin failed:', e);
-    toast('Erreur lors de l\'enregistrement du PIN.');
+    console.error('[setLocalPin] hashPin or save failed:', e);
+    toast('Erreur lors de l\'enregistrement du PIN. Réessaie.');
   }
 }
 
